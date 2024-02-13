@@ -19,13 +19,17 @@ Here we give a basic demo of how to work with OpenSCM-Calibration.
 
 ```{code-cell} ipython3
 from functools import partial
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Any, Callable, Dict
 
 import emcee
 import matplotlib.pyplot as plt
 import more_itertools
 import numpy as np
- 
+import datetime as dt
+import attr
+from attrs import define, field
+from openscm_units import unit_registry
+
 import pandas as pd
 import pint
 import scipy.integrate
@@ -54,14 +58,16 @@ from openscm_calibration.store import OptResStore
 
 ## Background
 
-In this notebook we're going to run a simple model to solve the following equation for the motion of a mass on a damped spring
+Solve model for emmisions and concentrations
 
-\begin{align*}
-v &= \frac{dx}{dt} \\
-m \frac{dv}{dt} &= -k (x - x_0) - \beta v
-\end{align*}
 
-where $v$ is the velocity of the mass, $x$ is the position of the mass, $t$ is time, $m$ is the mass of the mass, $k$ is the spring constant, $x_0$ is the equilibrium position and $\beta$ is a damping constant.
+$$\dfrac{d[CH_4]}{dt} = S_{CH_4} - k_1 [OH][CH_4]$$
+
+$$\dfrac{d[H_2]}{dt} = S_{H_2} - k_2 [OH][H_2] - \frac{1}{\tau_{dep}} [H_2]$$
+
+$$\dfrac{d[CO]}{dt} = S_{CO} - k_3 [OH][CO] + k_1 [OH][CH_4]$$
+
+$$\dfrac{d[OH]}{dt} = S_{OH} - k_x [OH] - k_3 [OH][CO] - k_2 [OH][H_2] - k_1 [OH][CH_4]$$
 
 +++
 
@@ -76,134 +82,730 @@ We want to support units, so we implement this using [pint](https://pint.readthe
 We're going to calibrate the model's response in two experiments:
 
 - starting out of equilibrium
-- starting at the equilibrium position but already moving
-
-We're going to fix the mass of the spring because the system is underconstrained if it isn't fixed.
+- out of equilibrium with a change in emissions
 
 ```{code-cell} ipython3
-LENGTH_UNITS = "m"
-MASS_UNITS = "Pt"
-TIME_UNITS = "yr"
-time_axis = UREG.Quantity(np.arange(1850, 2000, 1), TIME_UNITS)
-mass = UREG.Quantity(100, MASS_UNITS)
+LENGTH_UNIT = "cm"
+TIME_UNIT = "s"
+CONC_UNIT = "ppb"
+EMMS_UNIT = f"{CONC_UNIT} / {TIME_UNIT}"
+RATE_CONSTANT_UNIT = f"1 / ({CONC_UNIT} {TIME_UNIT})"
+
+# H2_UNIT = "H2"
+# CH4_UNIT = "CH4"
+# OH_UNIT = "OH"
+# CO_UNIT = "CO"
+
+
+UNIT_REGISTRY = unit_registry
+# add hydrogen in here
+symbol = "H2"
+value = "hydrogen"
+UNIT_REGISTRY.define(f"{symbol} = [{value}]")
+UNIT_REGISTRY.define(f"{value} = {symbol}")
+UNIT_REGISTRY._add_mass_emissions_joint_version(symbol)
+
+symbol = "OH"
+value = "hydroxyl"
+UNIT_REGISTRY.define(f"{symbol} = [{value}]")
+UNIT_REGISTRY.define(f"{value} = {symbol}")
+UNIT_REGISTRY._add_mass_emissions_joint_version(symbol)
+
+_EMMS_INDEXES = {
+    "Emissions|CH4": 0,
+    "Emissions|H2": 1,
+    "Emissions|CO": 2,
+    "Emissions|OH": 3,
+}
+
+_CONC_INDEXES = {k.split("|")[1].lower(): i for k, i in _EMMS_INDEXES.items()}
+_CONC_INDEXES_INV = {v: k for k, v in _CONC_INDEXES.items()}
+_CONC_ORDER = [_CONC_INDEXES_INV[i] for i in range(len(_CONC_INDEXES))]
 ```
 
 ```{code-cell} ipython3
-def do_experiments(
-    k: pint.Quantity, x_zero: pint.Quantity, beta: pint.Quantity
-) -> scmdata.run.BaseScmRun:
+def check_units(
+    required_dimension: str,
+) -> Callable[[Any, attr.Attribute, pint.Quantity[Any]], None]:
     """
-    Run model experiments
+    Check units of class attribute
+
+    Intended to be used as a validator with :func:`attrs.field`
 
     Parameters
     ----------
-    k
-        Spring constant [kg / s^2]
-
-    x_zero
-        Equilibrium position [m]
-
-    beta
-        Damping constant [kg / s]
+    required_dimension
+        Dimension that the input is required to have
 
     Returns
     -------
-        Results
+    Function that will validate that the intended dimension is passed
     """
-    # Avoiding pint conversions in the function actually
-    # being solved makes things much faster, but also
-    # harder to keep track of. We recommend starting with
-    # pint everywhere first, then optimising second (either
-    # via using numpy quantities throughout, optional numpy
-    # quantities using e.g. pint.wrap or using Fortran or
-    # C wrappers).
-    k_m = k.to(f"{MASS_UNITS} / {TIME_UNITS}^2").m
-    x_zero_m = x_zero.to(LENGTH_UNITS).m
-    beta_m = beta.to(f"{MASS_UNITS} / {TIME_UNITS}").m
-    m_m = mass.to(MASS_UNITS).m
 
-    def to_solve(t: np.ndarray, y: np.ndarray) -> np.ndarray:
+    def check_unit_internal(  # pylint:disable=unused-argument
+        self: Any, attribute: attr.Attribute, value: pint.Quantity[Any]
+    ) -> None:
         """
-        Right-hand side of our equation i.e. dN/dt
+        Check units of attribute
 
         Parameters
         ----------
-        t
-            time
+        self
+            Object instance
 
-        y
-            Current stat of the system
+        attribute
+            Attribute to check
 
-        Returns
-        -------
-            dN/dt
+        value
+            Value to check
+
+        Raises
+        ------
+        :obj:`pint.errors.DimensionalityError`
+            Units are not the correct dimensionality
         """
-        x = y[0]
-        v = y[1]
+        if not value.check(required_dimension):
+            raise pint.errors.DimensionalityError(
+                value,
+                "a quantity with dimensionality",
+                value.dimensionality,
+                UNIT_REGISTRY.get_dimensionality(required_dimension),
+                extra_msg=f" to set attribute `{attribute.name}`",
+            )
 
-        dv_dt = (-k_m * (x - x_zero_m) - beta_m * v) / m_m
-        dx_dt = v
+    return check_unit_internal
+```
 
-        out = np.array([dx_dt, dv_dt])
+```{code-cell} ipython3
+def get_emms_func(scmrun):
+    """
+    Convert scmrun into a function which takes input time
+    and returns emissions as a vector with the right units
+    """
+    # bad hard-coding, but can be fixed
+    ts = scmrun.timeseries(time_axis="year")
+    times = (
+        UNIT_REGISTRY.Quantity(np.array(ts.columns), "year")
+        .to(TIME_UNIT)
+        .magnitude.squeeze()
+    )
+    emms = np.zeros_like(ts)
+    for (v, u), df in ts.groupby(["variable", "unit"]):
+        emms[_EMMS_INDEXES[v]] = (
+            UNIT_REGISTRY.Quantity(df.values, u).to(EMMS_UNIT).magnitude
+        )
+
+    def emms_func(t):
+        return emms[:, np.argmax(t <= times)]
+
+    return emms_func
+```
+
+```{code-cell} ipython3
+@define
+class HydrogenBox:
+    k1: pint.Quantity[float] = field(
+        validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+    )
+    """Rate constant for reaction of methane and hydroxyl radical [cm^3 / s]"""
+
+    k2: pint.Quantity[float] = field(
+        validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+    )
+    """Rate constant for reaction of hydrogen and hydroxyl radical [cm^3 / s]"""
+
+    k3: pint.Quantity[float] = field(
+        validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+    )
+    """Rate constant for reaction of carbon monoxide and hydroxyl radical [cm^3 / s]"""
+
+    kx: pint.Quantity[float] = field(validator=check_units(f"1 / {TIME_UNIT}"))
+    """Rate constant for reaction of hydroxyl radical and everything else [1 / s]"""
+
+    tau_dep_h2: pint.Quantity[float] = field(validator=check_units(TIME_UNIT))
+    """Partial lifetime of hydrogen due to biogenic soil sinks [s]"""
+
+    air_number: pint.Quantity[float] = field(
+        validator=check_units(f"1 / {LENGTH_UNIT}^3"),
+        default=UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3"),
+    )
+    """Density of air [1 / cm^3]"""
+
+    def solve(
+        self,
+        emissions: scmdata.ScmRun,
+        out_steps: pint.Quantity[np.array],
+        y0: Dict[str, pint.Quantity[float]],
+        method="Radau",
+        max_step=365 * 24 * 60 * 60,
+    ):
+        scenario = emissions.get_unique_meta("scenario", True)
+        model = emissions.get_unique_meta("model", True)
+
+        emms_func = get_emms_func(emissions)
+        dconc_dt, jac = self._get_dconc_dt_jac(emms_func)
+        out_steps_mag = out_steps.to(TIME_UNIT).magnitude
+
+        y0_h = [y0[c].to(CONC_UNIT).magnitude for c in _CONC_ORDER]
+
+        sol = scipy.integrate.solve_ivp(
+            dconc_dt,
+            [out_steps_mag[0], out_steps_mag[-1]],
+            y0_h,
+            method=method,
+            vectorized=True,
+            max_step=max_step,
+            jac=jac,
+            t_eval=out_steps_mag,
+        )
+        #         sol.message
+
+        out_years = pint.Quantity(sol.t, TIME_UNIT).to("year").magnitude
+
+        out = scmdata.ScmRun(
+            pd.DataFrame(
+                sol.y,
+                index=pd.MultiIndex.from_arrays(
+                    [
+                        [
+                            f"Atmospheric Concentrations|{c.upper()}"
+                            for c in _CONC_ORDER
+                        ],
+                        [CONC_UNIT, CONC_UNIT, CONC_UNIT, CONC_UNIT],
+                        [
+                            "World",
+                            "World",
+                            "World",
+                            "World",
+                        ],
+                        [model, model, model, model],
+                        [
+                            scenario,
+                            scenario,
+                            scenario,
+                            scenario,
+                        ],
+                    ],
+                    names=["variable", "unit", "region", "model", "scenario"],
+                ),
+                columns=out_years,
+            )
+        )
 
         return out
 
-    res = {}
-    time_axis_m = time_axis.to(TIME_UNITS).m
-    for name, to_solve_l, x_start, v_start in (
-        (
-            "non-eqm-start",
-            to_solve,
-            UREG.Quantity(1.2, "m"),
-            UREG.Quantity(0, "m / s"),
-        ),
-        ("eqm-start", to_solve, x_zero, UREG.Quantity(0.3, "m / yr")),
-    ):
-        res[name] = scipy.integrate.solve_ivp(
-            to_solve_l,
-            t_span=[time_axis_m[0], time_axis_m[-1]],
-            y0=[
-                x_start.to(LENGTH_UNITS).m,
-                v_start.to(f"{LENGTH_UNITS} / {TIME_UNITS}").m,
-            ],
-            t_eval=time_axis_m,
-        )
-        if not res[name].success:
-            raise ValueError("Model failed to solve")
+    def _get_dconc_dt_jac(self, emms_func):
+        per_cm3_to_ppb = self.air_number / UNIT_REGISTRY.Quantity(1e9, "ppb")
+        
+        k1_mag = (self.k1 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+        k2_mag = (self.k2 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+        tau_dep_mag = self.tau_dep_h2.to(TIME_UNIT).magnitude
+        k3_mag = (self.k3 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+        kx_mag = self.kx.to(f"1 / {TIME_UNIT}").magnitude
 
-    out = scmdata.run.BaseScmRun(
+        def dconc_dt(t, y):
+            concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
+
+            emms_ch4_mag, emms_h2_mag, emms_co_mag, emms_oh_mag = emms_func(t)
+
+            dch4dt = emms_ch4_mag - k1_mag * concs["oh"] * concs["ch4"]
+            dh2dt = (
+                emms_h2_mag
+                - k2_mag * concs["oh"] * concs["h2"]
+                - concs["h2"] / tau_dep_mag
+            )
+            dcodt = (
+                emms_co_mag
+                - k3_mag * concs["oh"] * concs["co"]
+                + k1_mag * concs["oh"] * concs["ch4"]
+            )
+            dohdt = (
+                emms_oh_mag
+                - kx_mag * concs["oh"]
+                - k3_mag * concs["oh"] * concs["co"]
+                - k2_mag * concs["oh"] * concs["h2"]
+                - k1_mag * concs["oh"] * concs["ch4"]
+            )
+
+            out = {"ch4": dch4dt, "h2": dh2dt, "co": dcodt, "oh": dohdt}
+            out = [out[c] for c in _CONC_ORDER]
+
+            return out
+
+        def jac(t, y):
+            concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
+
+            return [
+                [-k1_mag * concs["oh"], 0, 0, -k1_mag * concs["ch4"]],
+                [0, -k2_mag * concs["oh"] - 1 / tau_dep_mag, 0, -k2_mag * concs["h2"]],
+                [
+                    k1_mag * concs["oh"],
+                    0,
+                    -k3_mag * concs["oh"],
+                    -k3_mag * concs["co"] + k1_mag * concs["ch4"],
+                ],
+                [
+                    -k1_mag * concs["oh"],
+                    -k2_mag * concs["oh"],
+                    -k3_mag * concs["oh"],
+                    -kx_mag
+                    - k3_mag * concs["co"]
+                    - k2_mag * concs["h2"]
+                    - k1_mag * concs["ch4"],
+                ],
+            ]
+
+        return dconc_dt, jac
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+# a=emm_values[:, np.newaxis]* np.ones(years.shape)[np.newaxis, :]
+# a[2,3]=400
+# a
+```
+
+```{code-cell} ipython3
+def do_experiments(k1,k2, k3, kx
+) -> scmdata.run.BaseScmRun:
+    """
+    Run model experiments
+    
+    Parameters
+    --------
+        
+    k1
+        rate of methane decomposition
+    
+    k2
+        rate of hydrogen decomposition
+        
+    k3
+        rate of carbon monoxide decomposition
+    
+    kx
+        sum of hydroxyl sinks
+    
+    """
+    @define
+    class HydrogenBox:
+        k1: pint.Quantity[float] = field(
+            validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+        )
+        """Rate constant for reaction of methane and hydroxyl radical [cm^3 / s]"""
+
+        k2: pint.Quantity[float] = field(
+            validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+        )
+        """Rate constant for reaction of hydrogen and hydroxyl radical [cm^3 / s]"""
+
+        k3: pint.Quantity[float] = field(
+            validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+        )
+        """Rate constant for reaction of carbon monoxide and hydroxyl radical [cm^3 / s]"""
+
+        kx: pint.Quantity[float] = field(validator=check_units(f"1 / {TIME_UNIT}"))
+        """Rate constant for reaction of hydroxyl radical and everything else [1 / s]"""
+
+        tau_dep_h2: pint.Quantity[float] = field(validator=check_units(TIME_UNIT))
+        """Partial lifetime of hydrogen due to biogenic soil sinks [s]"""
+
+        air_number: pint.Quantity[float] = field(
+            validator=check_units(f"1 / {LENGTH_UNIT}^3"),
+            default=UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3"),
+        )
+        """Density of air [1 / cm^3]"""
+
+        def solve(
+            self,
+            emissions: scmdata.ScmRun,
+            out_steps: pint.Quantity[np.array],
+            y0: Dict[str, pint.Quantity[float]],
+            method="Radau",
+            max_step=365 * 24 * 60 * 60,
+        ):
+            scenario = emissions.get_unique_meta("scenario", True)
+            model = emissions.get_unique_meta("model", True)
+
+            emms_func = get_emms_func(emissions)
+            dconc_dt, jac = self._get_dconc_dt_jac(emms_func)
+            out_steps_mag = out_steps.to(TIME_UNIT).magnitude
+
+            y0_h = [y0[c].to(CONC_UNIT).magnitude for c in _CONC_ORDER]
+
+            sol = scipy.integrate.solve_ivp(
+                dconc_dt,
+                [out_steps_mag[0], out_steps_mag[-1]],
+                y0_h,
+                method=method,
+                vectorized=True,
+                max_step=max_step,
+                jac=jac,
+                t_eval=out_steps_mag,
+            )
+            #         sol.message
+
+            out_years = pint.Quantity(sol.t, TIME_UNIT).to("year").magnitude
+
+            out = scmdata.ScmRun(
+                pd.DataFrame(
+                    sol.y,
+                    index=pd.MultiIndex.from_arrays(
+                        [
+                            [
+                                f"Atmospheric Concentrations|{c.upper()}"
+                                for c in _CONC_ORDER
+                            ],
+                            [CONC_UNIT, CONC_UNIT, CONC_UNIT, CONC_UNIT],
+                            [
+                                "World",
+                                "World",
+                                "World",
+                                "World",
+                            ],
+                            [model, model, model, model],
+                            [
+                                scenario,
+                                scenario,
+                                scenario,
+                                scenario,
+                            ],
+                        ],
+                        names=["variable", "unit", "region", "model", "scenario"],
+                    ),
+                    columns=out_years,
+                )
+            )
+
+            return out
+
+        def _get_dconc_dt_jac(self, emms_func):
+            per_cm3_to_ppb = self.air_number / UNIT_REGISTRY.Quantity(1e9, "ppb")
+
+            k1_mag = (self.k1 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+            k2_mag = (self.k2 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+            tau_dep_mag = self.tau_dep_h2.to(TIME_UNIT).magnitude
+            k3_mag = (self.k3 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+            kx_mag = self.kx.to(f"1 / {TIME_UNIT}").magnitude
+
+            def dconc_dt(t, y):
+                concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
+
+                emms_ch4_mag, emms_h2_mag, emms_co_mag, emms_oh_mag = emms_func(t)
+
+                dch4dt = emms_ch4_mag - k1_mag * concs["oh"] * concs["ch4"]
+                dh2dt = (
+                    emms_h2_mag
+                    - k2_mag * concs["oh"] * concs["h2"]
+                    - concs["h2"] / tau_dep_mag
+                )
+                dcodt = (
+                    emms_co_mag
+                    - k3_mag * concs["oh"] * concs["co"]
+                    + k1_mag * concs["oh"] * concs["ch4"]
+                )
+                dohdt = (
+                    emms_oh_mag
+                    - kx_mag * concs["oh"]
+                    - k3_mag * concs["oh"] * concs["co"]
+                    - k2_mag * concs["oh"] * concs["h2"]
+                    - k1_mag * concs["oh"] * concs["ch4"]
+                )
+
+                out = {"ch4": dch4dt, "h2": dh2dt, "co": dcodt, "oh": dohdt}
+                out = [out[c] for c in _CONC_ORDER]
+
+                return out
+
+            def jac(t, y):
+                concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
+
+                return [
+                    [-k1_mag * concs["oh"], 0, 0, -k1_mag * concs["ch4"]],
+                    [0, -k2_mag * concs["oh"] - 1 / tau_dep_mag, 0, -k2_mag * concs["h2"]],
+                    [
+                        k1_mag * concs["oh"],
+                        0,
+                        -k3_mag * concs["oh"],
+                        -k3_mag * concs["co"] + k1_mag * concs["ch4"],
+                    ],
+                    [
+                        -k1_mag * concs["oh"],
+                        -k2_mag * concs["oh"],
+                        -k3_mag * concs["oh"],
+                        -kx_mag
+                        - k3_mag * concs["co"]
+                        - k2_mag * concs["h2"]
+                        - k1_mag * concs["ch4"],
+                    ],
+                ]
+
+            return dconc_dt, jac
+        
+    # input emissions
+    years = np.arange(1000, 1501)
+
+    emm_values = np.array([204.5, 259.7, 223.7, 1464])
+    input_emms = scmdata.ScmRun(
         pd.DataFrame(
-            np.vstack([res["non-eqm-start"].y[0, :], res["eqm-start"].y[0, :]]),
+            emm_values[:, np.newaxis]
+            * np.ones(years.shape)[np.newaxis, :],
             index=pd.MultiIndex.from_arrays(
-                (
-                    ["position", "position"],
-                    [LENGTH_UNITS, LENGTH_UNITS],
-                    ["non-eqm-start", "eqm-start"],
-                ),
-                names=["variable", "unit", "scenario"],
+                [
+                    ["Emissions|CH4", "Emissions|CO", "Emissions|H2", "Emissions|OH"],
+                    ["ppb / yr", "ppb / yr", "ppb / yr", "ppb / yr"],
+                    [
+                        "World",
+                        "World",
+                        "World",
+                        "World",
+                    ],
+                    [
+                        "unspecified",
+                        "unspecified",
+                        "unspecified",
+                        "unspecified",
+                    ],
+                    [
+                        "Prather eqm",
+                        "Prather eqm",
+                        "Prather eqm",
+                        "Prather eqm",
+                    ],
+                ],
+                names=["variable", "unit", "region", "model", "scenario"],
             ),
-            columns=time_axis.to(TIME_UNITS).m,
+            columns=years,
         )
     )
-    out["model"] = "example"
 
+    if years.size <100:
+        shift_emms = input_emms.copy()
+
+    else:
+        temp = emm_values[:, np.newaxis]* np.ones(years.shape)[np.newaxis, :]
+        temp2 = temp.copy()
+        temp3 = temp.copy()
+        temp4 = temp.copy()
+        
+        n_years=72
+        for year in range(n_years):
+            temp[2, 50 + year + 1]=1.01*temp[2,50 + year]
+            
+            temp2[2, 50 + year + 1]=1.005*temp2[2,50 + year]
+            
+            temp3[2, 50 + year + 1]=1.01*temp3[2,50 + year]
+            
+            temp4[0, 50 + year + 1]=1.01*temp4[0,50 + year]
+            temp4[1, 50 +  year + n_years + 1]=1.01*temp4[1,50 + year+ n_years]
+            temp4[2, 50+ year + 2 * n_years + 1]=1.01*temp4[2,50+ year+ 2* n_years]
+
+        for year in range(n_years*2):
+            temp3[0,50 + year + 1]=temp3[0,50 + year]/1.01
+
+        temp[2,50+n_years+1:]=temp[2,50+n_years]
+        
+        temp2[2,50+n_years+1:]=temp2[2,50+n_years]
+        
+        temp3[2,50+n_years+1:]=temp3[2,50+n_years]
+        temp3[0,50+n_years*2+1:]=temp3[0,50+n_years*2]
+
+        temp4[0,50+n_years+1:]=temp4[0,50+n_years]
+        temp4[1,50+n_years*2+1:]=temp4[1,50+n_years*2]
+        temp4[1,50+n_years*3+1:]=temp4[1,50+n_years*3]
+
+        shift_emms = scmdata.ScmRun(
+            pd.DataFrame(
+                temp,
+                index=pd.MultiIndex.from_arrays(
+                    [
+                        ["Emissions|CH4", "Emissions|CO", "Emissions|H2", "Emissions|OH"],
+                        ["ppb / yr", "ppb / yr", "ppb / yr", "ppb / yr"],
+                        [
+                            "World",
+                            "World",
+                            "World",
+                            "World",
+                        ],
+                        [
+                            "unspecified",
+                            "unspecified",
+                            "unspecified",
+                            "unspecified",
+                        ],
+                        [
+                            "Increase H2",
+                            "Increase H2",
+                            "Increase H2",
+                            "Increase H2",
+                        ],
+                    ],
+                    names=["variable", "unit", "region", "model", "scenario"],
+                ),
+                columns=years,
+            )
+        )
+#         input_emms = scmdata.ScmRun(
+#             pd.DataFrame(
+#                 temp2,
+#                 index=pd.MultiIndex.from_arrays(
+#                     [
+#                         ["Emissions|CH4", "Emissions|CO", "Emissions|H2", "Emissions|OH"],
+#                         ["ppb / yr", "ppb / yr", "ppb / yr", "ppb / yr"],
+#                         [
+#                             "World",
+#                             "World",
+#                             "World",
+#                             "World",
+#                         ],
+#                         [
+#                             "unspecified",
+#                             "unspecified",
+#                             "unspecified",
+#                             "unspecified",
+#                         ],
+#                         [
+#                             "Small H2",
+#                             "Small H2",
+#                             "Small H2",
+#                             "Small H2",
+#                         ],
+#                     ],
+#                     names=["variable", "unit", "region", "model", "scenario"],
+#                 ),
+#                 columns=years,
+#             )
+#         )
+    input_emms = scmdata.ScmRun(
+            pd.DataFrame(
+                temp4,
+                index=pd.MultiIndex.from_arrays(
+                    [
+                        ["Emissions|CH4", "Emissions|CO", "Emissions|H2", "Emissions|OH"],
+                        ["ppb / yr", "ppb / yr", "ppb / yr", "ppb / yr"],
+                        [
+                            "World",
+                            "World",
+                            "World",
+                            "World",
+                        ],
+                        [
+                            "unspecified",
+                            "unspecified",
+                            "unspecified",
+                            "unspecified",
+                        ],
+                        [
+                            "Increase H2 Lower CH4",
+                            "Increase H2 Lower CH4",
+                            "Increase H2 Lower CH4",
+                            "Increase H2 Lower CH4",
+                        ],
+                    ],
+                    names=["variable", "unit", "region", "model", "scenario"],
+                ),
+                columns=years,
+            )
+        )
+
+
+    y0 = {
+        "ch4": UNIT_REGISTRY.Quantity(1851.71, "ppb"),
+        "co": UNIT_REGISTRY.Quantity(132.4, "ppb"),
+        "h2": UNIT_REGISTRY.Quantity(432.33, "ppb"),
+        "oh": UNIT_REGISTRY.Quantity(2.22e-05, "ppb"),
+    } 
+    
+    to_solve = HydrogenBox(
+    k1=k1,
+    k2=k2,
+    k3=k3,
+    kx=kx,
+    tau_dep_h2=UNIT_REGISTRY.Quantity(2.5, "year"),
+    )
+    scens_res=[]
+    
+    time_axis_m=years
+    out_steps = UNIT_REGISTRY.Quantity(input_emms.time_points.years(), "year")
+
+    for name, to_solve_l, y0, emms_l in (
+        (
+            "constant_emms",
+            to_solve,
+            y0,
+            input_emms,
+        ),
+        ("shift_emms", to_solve, y0, shift_emms),
+    ):
+        res = to_solve_l.solve(emms_l,out_steps=out_steps,y0=y0)
+        scens_res.append(res)
+#         if not res[name].success:
+#             raise ValueError("Model failed to solve")
+
+#     out = scmdata.run.BaseScmRun(
+#         pd.DataFrame(
+#             np.vstack([res["constant_emms"].y[0, :], res["shift_emms"].y[0, :]]),
+#             index=pd.MultiIndex.from_arrays(
+#                 (
+#                     ["position", "position"],
+#                     [LENGTH_UNITS, LENGTH_UNITS],
+#                     ["constant_emms", "shift_emms"],
+#                 ),
+#                 names=["variable", "unit", "scenario"],
+#             ),
+#             columns=time_axis.to(TIME_UNITS).m,
+#         )
+#     )
+
+#     out["model"] = "example"
+    out = scmdata.run_append(scens_res)
     return out
 ```
 
 ### Target
 
-For this example, we're going to use a known configuration as our target so we can make sure that we optimise to the right spot. In practice, we won't know the correct answer before we start so this setup will generally look a bit different (typically we would be loading data from some other source to which we want to calibrate).
+Use Jpl values to calculate a target.
+
+```{code-cell} ipython3
+k1_jpl = UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s")
+k2_jpl = UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s")  # JPL publication 19-5, page 1-53
+k3_jpl = UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s")
+kx_base = UNIT_REGISTRY.Quantity(1.062, "1 / s")
+y0 = {
+    "ch4": UNIT_REGISTRY.Quantity(1785, "ppb"),
+    "co": UNIT_REGISTRY.Quantity(98, "ppb"),
+    "h2": UNIT_REGISTRY.Quantity(500, "ppb"),
+    "oh": UNIT_REGISTRY.Quantity(2e-5, "ppb"),
+}
+```
 
 ```{code-cell} ipython3
 truth = {
-    "k": UREG.Quantity(3000, "kg / s^2"),
-    "x_zero": UREG.Quantity(0.5, "m"),
-    "beta": UREG.Quantity(1e11, "kg / s"),
+    "k1" : UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s"),
+    "k2" : UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s") ,
+    "k3" : UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s"),
+    "kx" :UNIT_REGISTRY.Quantity(1.062, "1 / s"),
 }
+# truth = {
+#     "k1" : UNIT_REGISTRY.Quantity(6.3e-2, "cm^3 / s"),
+#     "k2" : UNIT_REGISTRY.Quantity(6.7e-2, "cm^3 / s") ,
+#     "k3" : UNIT_REGISTRY.Quantity(2e-2, "cm^3 / s"),
+#     "kx" :UNIT_REGISTRY.Quantity(1.062, "1 / s"),
+# }
 
 target = do_experiments(**truth)
 target["model"] = "target"
-target.lineplot(time_axis="year-month")
+# target.lineplot(time_axis="year-month")
+
+for vdf in target.groupby("variable"):
+    vdf.lineplot(style="variable")
+    plt.show()
+```
+
+```{code-cell} ipython3
 target
 ```
 
@@ -212,18 +814,28 @@ target
 The next thing is to decide how we're going to calculate the cost function. There are many options here, in this case we're going to use the sum of squared errors.
 
 ```{code-cell} ipython3
+
 normalisation = pd.Series(
-    [0.1],
+#     [0.1,0.1,0.1,0.1],
+    [1,1,1,1],
+
     index=pd.MultiIndex.from_arrays(
         (
             [
-                "position",
+                "Atmospheric Concentrations|CH4",
+                "Atmospheric Concentrations|H2",
+                "Atmospheric Concentrations|CO",
+                "Atmospheric Concentrations|OH",
             ],
-            ["m"],
+            ["ppb","ppb","ppb","ppb"],
         ),
         names=["variable", "unit"],
     ),
 )
+normalisation
+```
+
+```{code-cell} ipython3
 
 cost_calculator = OptCostCalculatorSSE.from_series_normalisation(
     target=target, normalisation_series=normalisation, model_col="model"
@@ -243,9 +855,10 @@ Firstly, we define the parameters we're going to optimise. This will be used to 
 
 ```{code-cell} ipython3
 parameters = [
-    ("k", f"{MASS_UNITS} / {TIME_UNITS} ^ 2"),
-    ("x_zero", LENGTH_UNITS),
-    ("beta", f"{MASS_UNITS} / {TIME_UNITS}"),
+    ("k1", f"{LENGTH_UNIT}^3 / {TIME_UNIT}"),
+    ("k2", f"{LENGTH_UNIT}^3 / {TIME_UNIT}"),
+    ("k3", f"{LENGTH_UNIT}^3 / {TIME_UNIT}"),
+    ("kx",f"1 / {TIME_UNIT}")
 ]
 parameters
 ```
@@ -254,27 +867,30 @@ Next we define a function which, given pint quantities, returns the inputs neede
 
 ```{code-cell} ipython3
 def do_model_runs_input_generator(
-    k: pint.Quantity, x_zero: pint.Quantity, beta: pint.Quantity
+    k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
 
     Parameters
     ----------
-    k
-        k
+    k1
+        k1
 
-    x_zero
-        x_zero
+    k2
+        k2
 
-    beta
-        beta
+    k3
+        k3
+        
+    kx
+        kx
 
     Returns
     -------
         Inputs for :func:`do_experiments`
     """
-    return {"k": k, "x_zero": x_zero, "beta": beta}
+    return {"k1": k1, "k2": k2, "k3": k3, "kx": kx}
 ```
 
 ```{code-cell} ipython3
@@ -289,7 +905,7 @@ model_runner
 Now we can run from a plain numpy array (like scipy will use) and get a result that will be understood by our cost calculator.
 
 ```{code-cell} ipython3
-cost_calculator.calculate_cost(model_runner.run_model([3, 0.5, 3]))
+cost_calculator.calculate_cost(model_runner.run_model([1e-15, 1e-15, 1e-13,1]))
 ```
 
 Now we're ready to optimise.
@@ -305,26 +921,40 @@ Scipy has many [global optimisation options](https://docs.scipy.org/doc/scipy/re
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([4, 0.6, 2])
+start = np.array([1e-15, 1e-15, 1e-13,1])
 start
 ```
 
 For this optimisation, we must also define bounds for each parameter.
+```
+truth = {
+    "k1" : UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s"),
+    "k2" : UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s") ,
+    "k3" : UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s"),
+    "kx" :UNIT_REGISTRY.Quantity(1.062, "1 / s"),
+}
+```
 
 ```{code-cell} ipython3
 bounds_dict = {
-    "k": [
-        UREG.Quantity(300, "kg / s^2"),
-        UREG.Quantity(1e4, "kg / s^2"),
+    "k1": [
+        UREG.Quantity(1e-15, "cm^3 / s"),
+        UREG.Quantity(1e-14, "cm^3 / s"),
     ],
-    "x_zero": [
-        UREG.Quantity(-2, "m"),
-        UREG.Quantity(2, "m"),
+    "k2": [
+        UREG.Quantity(1e-15, "cm^3 / s"),
+        UREG.Quantity(1e-14, "cm^3 / s"),
     ],
-    "beta": [
-        UREG.Quantity(1e10, "kg / s"),
-        UREG.Quantity(1e12, "kg / s"),
+    "k3": [
+        UREG.Quantity(1e-13, "cm^3 / s"),
+        UREG.Quantity(1e-12, "cm^3 / s"),
     ],
+    
+    "kx": [
+        UREG.Quantity(0.4, "1 / s"),
+        UREG.Quantity(2, "1 / s"),
+    ],
+ 
 }
 display(bounds_dict)
 
@@ -377,18 +1007,18 @@ cost_name = "cost"
 timeseries_axes = list(convert_scmrun_to_plot_dict(target).keys())
 
 parameters_names = [v[0] for v in parameters]
-parameters_mosiac = list(more_itertools.repeat_each(parameters_names, 1))
-timeseries_axes_mosiac = list(more_itertools.repeat_each(timeseries_axes, 1))
+parameters_mosaic = list(more_itertools.repeat_each(parameters_names, 1))
+timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
 
 fig, axd = plt.subplot_mosaic(
     mosaic=[
-        [cost_name] + timeseries_axes_mosiac,
-        parameters_mosiac,
+        [cost_name] + timeseries_axes_mosaic[0:4],
+        [cost_name]+ timeseries_axes_mosaic[4:8],
+        [cost_name]+parameters_mosaic,
     ],
-    figsize=(6, 6),
+    figsize=(12, 6),
 )
 holder = display(fig, display_id=True)
-
 
 with Manager() as manager:
     store = OptResStore.from_n_runs_manager(
@@ -396,6 +1026,7 @@ with Manager() as manager:
         manager,
         params=parameters_names,
     )
+
 
     # Create objects and functions to use
     to_minimize = partial(
@@ -452,6 +1083,95 @@ plt.close()
 optimize_res
 ```
 
+```{code-cell} ipython3
+[cost_name] + timeseries_axes_mosaic[0:4]
+```
+
+```{code-cell} ipython3
+fig, axd = plt.subplot_mosaic(
+    mosaic=[
+        [cost_name] + timeseries_axes_mosaic[0:4],
+        [cost_name]+ timeseries_axes_mosaic[4:8],
+        [cost_name]+parameters_mosaic,
+    ],
+    figsize=(12, 6),
+)
+holder = display(fig, display_id=True)
+
+with Manager() as manager:
+    store = OptResStore.from_n_runs_manager(
+        max_n_runs,
+        manager,
+        params=parameters_names,
+    )
+
+
+    # Create objects and functions to use
+    to_minimize = partial(
+        to_minimize_full,
+        store=store,
+        cost_calculator=cost_calculator,
+        model_runner=model_runner,
+        known_error=ValueError,
+    )
+
+    with manager.Pool(processes=processes) as pool:
+        with tqdm(total=max_n_runs) as pbar:
+            opt_plotter = OptPlotter(
+                holder=holder,
+                fig=fig,
+                axes=axd,
+                cost_key=cost_name,
+                parameters=parameters_names,
+                timeseries_axes=timeseries_axes,
+                convert_scmrun_to_plot_dict=convert_scmrun_to_plot_dict,
+                target=target,
+                store=store,
+                thin_ts_to_plot=thin_ts_to_plot,
+            )
+
+            proxy = CallbackProxy(
+                real_callback=opt_plotter,
+                store=store,
+                update_every=update_every,
+                progress_bar=pbar,
+                last_callback_val=0,
+            )
+
+            # This could be wrapped up too
+            optimize_res = scipy.optimize.differential_evolution(
+                to_minimize,
+                bounds,
+                maxiter=maxiter,
+                x0=start,
+                tol=tol,
+                atol=atol,
+                seed=seed,
+                # Polish as a second step if you want
+                polish=False,
+                workers=pool.map,
+                updating="deferred",  # as we run in parallel, this has to be used
+                mutation=mutation,
+                recombination=recombination,
+                popsize=popsize,
+                callback=proxy.callback_differential_evolution,
+            )
+
+plt.close()
+optimize_res
+```
+
+```
+truth = {
+    "k1" : UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s"),
+    "k2" : UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s") ,
+    "k3" : UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s"),
+    "kx" :UNIT_REGISTRY.Quantity(1.062, "1 / s"),
+}
+```
+
++++
+
 ## Local optimisation
 
 Scipy also has [local optimisation](https://docs.scipy.org/doc/scipy/reference/optimize.html#local-multivariate-optimization) (e.g. Nelder-Mead) options. Here we show how to do this.
@@ -459,6 +1179,70 @@ Scipy also has [local optimisation](https://docs.scipy.org/doc/scipy/reference/o
 +++
 
 Again, we have to define where to start the optimisation (this has a greater effect on local optimisation).
+
+```{code-cell} ipython3
+with Manager() as manager:
+    store = OptResStore.from_n_runs_manager(
+        max_n_runs,
+        manager,
+        params=parameters_names,
+    )
+
+
+    # Create objects and functions to use
+    to_minimize = partial(
+        to_minimize_full,
+        store=store,
+        cost_calculator=cost_calculator,
+        model_runner=model_runner,
+        known_error=ValueError,
+    )
+
+    with manager.Pool(processes=processes) as pool:
+        with tqdm(total=max_n_runs) as pbar:
+            opt_plotter = OptPlotter(
+                holder=holder,
+                fig=fig,
+                axes=axd,
+                cost_key=cost_name,
+                parameters=parameters_names,
+                timeseries_axes=timeseries_axes,
+                convert_scmrun_to_plot_dict=convert_scmrun_to_plot_dict,
+                target=target,
+                store=store,
+                thin_ts_to_plot=thin_ts_to_plot,
+            )
+
+            proxy = CallbackProxy(
+                real_callback=opt_plotter,
+                store=store,
+                update_every=update_every,
+                progress_bar=pbar,
+                last_callback_val=0,
+            )
+
+            # This could be wrapped up too
+            optimize_res = scipy.optimize.differential_evolution(
+                to_minimize,
+                bounds,
+                maxiter=maxiter,
+                x0=start,
+                tol=tol,
+                atol=atol,
+                seed=seed,
+                # Polish as a second step if you want
+                polish=False,
+                workers=pool.map,
+                updating="deferred",  # as we run in parallel, this has to be used
+                mutation=mutation,
+                recombination=recombination,
+                popsize=popsize,
+                callback=proxy.callback_differential_evolution,
+            )
+
+plt.close()
+optimize_res
+```
 
 ```{code-cell} ipython3
 # Here we imagine that we're polishing from the results of the DE above,
@@ -510,7 +1294,7 @@ with tqdm(total=max_n_runs) as pbar:
             n_timeseries_per_row=1,
             cost_col_relwidth=2,
         ),
-        kwargs_get_fig_axes_holder=dict(figsize=(10, 6)),
+        kwargs_get_fig_axes_holder=dict(figsize=(10, 12)),
         plot_cost_kwargs={
             "alpha": 0.7,
             "get_ymax": partial(
@@ -539,10 +1323,6 @@ with tqdm(total=max_n_runs) as pbar:
 plt.close()
 optimize_res_local
 ```
-
-## Does red tqdm mean finished?
-
-+++
 
 ## MCMC
 
@@ -623,7 +1403,7 @@ np.random.seed(424242)
 # the posterior appropriately, normally requires looking at the
 # chains and then just running them for longer if needed.
 # This number is definitely too small
-max_iterations = 400
+max_iterations = 200
 burnin = 10
 thin = 2
 

@@ -197,13 +197,17 @@ For this example, we're going to use a known configuration as our target so we c
 ```{code-cell} ipython3
 truth = {
     "k": UREG.Quantity(3000, "kg / s^2"),
-    "x_zero": UREG.Quantity(0.5, "m"),
+    "x_zero": UREG.Quantity(0, "m"),
     "beta": UREG.Quantity(1e11, "kg / s"),
 }
 
 target = do_experiments(**truth)
 target["model"] = "target"
 target.lineplot(time_axis="year-month")
+target
+```
+
+```{code-cell} ipython3
 target
 ```
 
@@ -375,15 +379,24 @@ convert_scmrun_to_plot_dict = partial(scmrun_as_dict, groups=["variable", "scena
 
 cost_name = "cost"
 timeseries_axes = list(convert_scmrun_to_plot_dict(target).keys())
-
 parameters_names = [v[0] for v in parameters]
-parameters_mosiac = list(more_itertools.repeat_each(parameters_names, 1))
-timeseries_axes_mosiac = list(more_itertools.repeat_each(timeseries_axes, 1))
+parameters_mosaic = list(more_itertools.repeat_each(parameters_names, 1))
+timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
+```
 
+```{code-cell} ipython3
+mosaic=[
+        [cost_name] + timeseries_axes_mosaic,
+        parameters_mosaic,
+    ]
+mosaic
+```
+
+```{code-cell} ipython3
 fig, axd = plt.subplot_mosaic(
     mosaic=[
-        [cost_name] + timeseries_axes_mosiac,
-        parameters_mosiac,
+        [cost_name] + timeseries_axes_mosaic,
+        parameters_mosaic,
     ],
     figsize=(6, 6),
 )
@@ -451,6 +464,16 @@ with Manager() as manager:
 plt.close()
 optimize_res
 ```
+
+```
+truth = {
+    "k": UREG.Quantity(3000, "kg / s^2"),
+    "x_zero": UREG.Quantity(0, "m"),
+    "beta": UREG.Quantity(1e11, "kg / s"),
+}
+```
+
++++
 
 ## Local optimisation
 
