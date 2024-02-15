@@ -233,6 +233,9 @@ patterson.timeseries()
 emissions_patt
 ```
 
+### add natural emissions
+From Malte Paper
+
 ```{code-cell} ipython3
 patterson= patterson+ 32.4
 patterson.timeseries()
@@ -252,23 +255,6 @@ emissions["model"]="None"
 
 emissions = emissions.filter(year=years)
 emissions
-```
-
-## Natural Emissions
-
-```{code-cell} ipython3
-# path= "datasets/rcmip-emissions-annual-means-v5-1-0.csv"
-# # rcmip = scmdata.ScmRun(path, lowercase_cols=True).filter(scenario="historical",region="World").filter(variable=["*|CH4","*|CO"])
-# rcmip = scmdata.ScmRun(path, lowercase_cols=True)
-# # rcmip = rcmip.drop_meta(["activity_id", "mip_era"])
-# # rcmip.get_unique_meta("")
-# rcmip.get_unique_meta("scenario")
-```
-
-```{code-cell} ipython3
-# for vdf in rcmip.filter(scenario="historical",region="World",year=np.arange(1750,1850)).filter(variable=["*|CH4","*|CO"]).groupby("variable"):
-#     vdf.lineplot()
-#     plt.figure()
 ```
 
 ### Convert Emissions
