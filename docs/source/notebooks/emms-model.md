@@ -4,12 +4,97 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.15.0
+    jupytext_version: 1.14.5
 kernelspec:
   display_name: Python 3 (ipykernel)
   language: python
   name: python3
 ---
+
+```{code-cell} ipython3
+from functools import partial
+from typing import Dict, Tuple, Any, Callable, Dict
+
+import emcee
+import matplotlib.pyplot as plt
+import more_itertools
+import numpy as np
+import datetime as dt
+import attr
+from attrs import define, field
+from openscm_units import unit_registry
+```
+
+```{code-cell} ipython3
+import pandas as pd
+import pint
+import scipy.integrate
+import scmdata.run
+from emcwrap import DIMEMove
+from multiprocess import Pool, Manager
+from openscm_units import unit_registry as UREG
+from tqdm.notebook import tqdm
+
+from openscm_calibration import emcee_plotting
+from openscm_calibration.cost import OptCostCalculatorSSE
+from openscm_calibration.emcee_utils import (
+    get_acceptance_fractions,
+    get_autocorrelation_info,
+)
+from openscm_calibration.minimize import to_minimize_full
+from openscm_calibration.model_runner import OptModelRunner
+from openscm_calibration.scipy_plotting import (
+    CallbackProxy,
+    OptPlotter,
+    get_ymax_default,
+)
+from openscm_calibration.scmdata_utils import scmrun_as_dict
+from openscm_calibration.store import OptResStore
+LENGTH_UNIT = "cm"
+TIME_UNIT = "s"
+CONC_UNIT = "ppb"
+EMMS_UNIT = f"{CONC_UNIT} / {TIME_UNIT}"
+RATE_CONSTANT_UNIT = f"1 / ({CONC_UNIT} {TIME_UNIT})"
+
+# H2_UNIT = "H2"
+# CH4_UNIT = "CH4"
+# OH_UNIT = "OH"
+# CO_UNIT = "CO"
+
+
+UNIT_REGISTRY = unit_registry
+# add hydrogen in here
+symbol = "H2"
+value = "hydrogen"
+UNIT_REGISTRY.define(f"{symbol} = [{value}]")
+UNIT_REGISTRY.define(f"{value} = {symbol}")
+UNIT_REGISTRY._add_mass_emissions_joint_version(symbol)
+
+symbol = "OH"
+value = "hydroxyl"
+UNIT_REGISTRY.define(f"{symbol} = [{value}]")
+UNIT_REGISTRY.define(f"{value} = {symbol}")
+UNIT_REGISTRY._add_mass_emissions_joint_version(symbol)
+
+_EMMS_INDEXES = {
+    "Emissions|CH4": 0,
+    "Emissions|H2": 1,
+    "Emissions|CO": 2,
+    "Emissions|OH": 3,
+}
+
+_CONC_INDEXES = {k.split("|")[1].lower(): i for k, i in _EMMS_INDEXES.items()}
+_CONC_INDEXES_INV = {v: k for k, v in _CONC_INDEXES.items()}
+_CONC_ORDER = [_CONC_INDEXES_INV[i] for i in range(len(_CONC_INDEXES))]
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+
+```
 
 # Import data
 

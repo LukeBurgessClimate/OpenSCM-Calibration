@@ -4,12 +4,16 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.15.0
+    jupytext_version: 1.14.5
 kernelspec:
   display_name: Python 3 (ipykernel)
   language: python
   name: python3
 ---
+
+```{code-cell} ipython3
+%matplotlib inline
+```
 
 ```{code-cell} ipython3
 from functools import partial
@@ -23,7 +27,9 @@ import datetime as dt
 import attr
 from attrs import define, field
 from openscm_units import unit_registry
+```
 
+```{code-cell} ipython3
 import pandas as pd
 import pint
 import scipy.integrate
@@ -157,7 +163,7 @@ concentrations=concentrations.filter(year=years)
 ```{code-cell} ipython3
 atmosphere_molar_mass = 28.97
 # UNIT_REGISTRY.Quantity(28.97, "g / mol")  # https://www.cs.mcgill.ca/~rwest/wikispeedia/wpcd/wp/e/Earth%2527s_atmosphere.htm#:~:text=The%20mean%20molar%20mass%20of%20air%20is%2028.97%20g%2Fmol.
-atmosphere_mass =5.18e18 
+atmosphere_mass =5.18e18  ### This value should probably be ammend to tropospheric masses. 
 # UNIT_REGISTRY.Quantity(5.18e18, "kg") 
 atmosphere_mole_outer = atmosphere_mass / atmosphere_molar_mass
 atmosphere_mole_outer
@@ -294,6 +300,14 @@ emissions_ppb=emissions_ppb.convert_unit("ppb/a")
 emissions_ppb.timeseries()
 ```
 
+```{code-cell} ipython3
+atmosphere_mole_outer
+```
+
+```{code-cell} ipython3
+
+```
+
 ## Add OH concentration
 
 ```{code-cell} ipython3
@@ -308,7 +322,7 @@ def import_rigby(path,start,end):
                 index=pd.MultiIndex.from_arrays(
                     [
                         [ "Atmospheric Concentrations|OH"],
-                        ["1/ cm ** 3"],
+                        ["1e6/ cm ** 3"],
                         [
                             "World",
                         ],
@@ -326,12 +340,121 @@ def import_rigby(path,start,end):
         )
     return rigby_oh
     
-start = 1980
-end = 2014
-path = 'datasets/pnas.1616426114.sd01.xls'
 
-rigby = import_rigby(path, 1980,2014)
+path = 'datasets/pnas.1616426114.sd01.xls'
+rigby = import_rigby(path, start=1980,end=2014)
+air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
+# air_number = UNIT_REGISTRY.Quantity(1.57e19, "1 / cm^3") # https://www.nature.com/articles/s41467-022-35419-7/tables/1
+ 
+#Convert units and correct timerange
+rigby= rigby*UNIT_REGISTRY.Quantity(1e9, "ppb")/ air_number
+rigby =rigby.filter(year=years)
 rigby.timeseries()
+```
+
+```{code-cell} ipython3
+concentrations=concentrations.append(rigby)
+concentrations.timeseries()
+```
+
+```{code-cell} ipython3
+for vdf in concentrations.groupby("variable"):
+    vdf.lineplot(style="variable")
+    plt.show()
+```
+
+```{code-cell} ipython3
+# new= new*UNIT_REGISTRY.Quantity(1e9, "ppb")/ air_number
+```
+
+```{code-cell} ipython3
+# tropospheric_mass = UNIT_REGISTRY.Quantity(4.22e18,'kg').to('g')
+# atmosphere_molar_mass = UNIT_REGISTRY.Quantity(28.97, "g / mol")  # https://www.cs.mcgill.ca/~rwest/wikispeedia/wpcd/wp/e/Earth%2527s_atmosphere.htm#:~:text=The%20mean%20molar%20mass%20of%20air%20is%2028.97%20g%2Fmol.
+# tropospheric_mole=tropospheric_mass/atmosphere_molar_mass
+# tropospheric_mole
+```
+
+```{code-cell} ipython3
+# atmospheric_density = UNIT_REGISTRY.Quantity(0.0012, "g/cm**3")
+# tropospheric_volume = UNIT_REGISTRY.Quantity(6e9,"km**3")
+# tropospheric_volume.to("cm **3")
+```
+
+```{code-cell} ipython3
+# air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
+# air_number
+```
+
+```{code-cell} ipython3
+# oh_years = years.copy()
+
+# # oh_concentrations= scmdata.ScmRun(
+# #     pd.DataFrame(
+# #         2.9e-5 * np.ones(years.shape)[np.newaxis, :],
+# #         index=pd.MultiIndex.from_arrays(
+# #             [
+# #                 [ "Atmospheric Concentrations|OH"],
+# #                 ["ppb"],
+# #                 [
+# #                     "World",
+# #                 ],
+# #                 [
+# #                     "None",
+# #                 ],
+# #                 [
+# #                     "historical",
+# #                 ],
+# #             ],
+# #             names=["variable", "unit", "region", "model", "scenario"],
+# #         ),
+# #         columns=years,
+# #     )
+# # )
+
+# for vdf in oh_concentrations.groupby("variable"):
+#     vdf.lineplot(style="variable")
+#     plt.show()
+    
+# concentrations=concentrations.append(oh_concentrations)
+# concentrations.timeseries()
+```
+
+```{code-cell} ipython3
+# def import_rigby(path,start,end):
+#     path = 'datasets/pnas.1616426114.sd01.xls'
+#     rigby =pd.read_excel(path,header=4)
+#     rigby_val=np.array([rigby["Unnamed: 2"].values])
+#     rigby_year= np.arange(start,end+1)
+#     rigby_oh= scmdata.ScmRun(
+#             pd.DataFrame(
+#                 rigby_val,
+#                 index=pd.MultiIndex.from_arrays(
+#                     [
+#                         [ "Atmospheric Concentrations|OH"],
+#                         ["1/ cm ** 3"],
+#                         [
+#                             "World",
+#                         ],
+#                         [
+#                             "None",
+#                         ],
+#                         [
+#                             "historical",
+#                         ],
+#                     ],
+#                     names=["variable", "unit", "region", "model", "scenario"],
+#                 ),
+#                 columns=rigby_year,
+#             )
+#         )
+#     return rigby_oh
+    
+# start = 1980
+# end = 2014
+# path = 'datasets/pnas.1616426114.sd01.xls'
+
+# rigby = import_rigby(path, 1980,2014)
+# rigby.timeseries()
 ```
 
 ```{code-cell} ipython3
@@ -372,9 +495,7 @@ rigby.timeseries()
 
 ```
 
-```{code-cell} ipython3
-
-```
+## Add OH emissions
 
 ```{code-cell} ipython3
 oh_vals =1464 * np.ones(years.shape)[np.newaxis, :]
@@ -698,15 +819,15 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years
     y0 = {
         "ch4": UNIT_REGISTRY.Quantity(1680, "ppb"),
         "co": UNIT_REGISTRY.Quantity(60, "ppb"),
-        "h2": UNIT_REGISTRY.Quantity(510, "ppb"),
-        "oh": UNIT_REGISTRY.Quantity(2.9e-05, "ppb"),
+        "h2": UNIT_REGISTRY.Quantity(530, "ppb"),
+        "oh": UNIT_REGISTRY.Quantity(4.48e-05, "ppb"),
     } 
     
     to_solve = HydrogenBox(
     k1=k1,
     k2=k2,
     k3=k3,
-    kx=UNIT_REGISTRY.Quantity(1.062, "1 / s"),
+    kx=UNIT_REGISTRY.Quantity(1, "1 / s"),
     tau_dep_h2=UNIT_REGISTRY.Quantity(2.5, "year"),
     )
     scens_res=[]
@@ -755,6 +876,10 @@ k1_jpl = UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s")
 k2_jpl = UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s")  # JPL publication 19-5, page 1-53
 k3_jpl = UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s")
 kx_base = UNIT_REGISTRY.Quantity(1.062, "1 / s")
+```
+
+```{code-cell} ipython3
+emissions_ppb
 ```
 
 ```{code-cell} ipython3
@@ -1450,8 +1575,4 @@ with Pool(processes=processes) as pool:
 # Close all the figures
 for _ in range(4):
     plt.close()
-```
-
-```{code-cell} ipython3
-
 ```

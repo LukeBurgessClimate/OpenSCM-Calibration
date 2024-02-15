@@ -814,7 +814,6 @@ target
 The next thing is to decide how we're going to calculate the cost function. There are many options here, in this case we're going to use the sum of squared errors.
 
 ```{code-cell} ipython3
-
 normalisation = pd.Series(
 #     [0.1,0.1,0.1,0.1],
     [1,1,1,1],
@@ -836,7 +835,6 @@ normalisation
 ```
 
 ```{code-cell} ipython3
-
 cost_calculator = OptCostCalculatorSSE.from_series_normalisation(
     target=target, normalisation_series=normalisation, model_col="model"
 )
