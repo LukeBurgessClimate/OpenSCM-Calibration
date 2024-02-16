@@ -4,7 +4,7 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.15.0
+    jupytext_version: 1.14.5
 kernelspec:
   display_name: Python 3 (ipykernel)
   language: python
@@ -975,7 +975,7 @@ seed = 12849
 atol = 1
 tol = 0.02
 # Maximum number of iterations to use
-maxiter = 8
+maxiter = 32
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
