@@ -4,7 +4,7 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.15.0
+    jupytext_version: 1.14.5
 kernelspec:
   display_name: Python 3 (ipykernel)
   language: python
@@ -38,7 +38,11 @@ UNIT_REGISTRY._add_mass_emissions_joint_version(symbol)
 ```
 
 ```{code-cell} ipython3
+rcmip = scmdata.ScmRun(path, lowercase_cols=True).filter(region="World").filter(variable=["*|CH4","*|CO"])
+```
 
+```{code-cell} ipython3
+rcmip.get_unique_meta('scenario')
 ```
 
 ```{code-cell} ipython3
@@ -216,7 +220,6 @@ def load_noaa_csv(paths,gases,headers):
         yearly = daily.groupby("year")["value"].mean()
         df.append(yearly)
     return df
-
 ```
 
 ```{code-cell} ipython3
@@ -587,7 +590,6 @@ for i in fh.variables:
 time = fh.variables['time'][:]
 lats = fh.variables['latitude'][:]
 oh_scal = fh.variables['oh_scaling'][:]
-
 ```
 
 ```{code-cell} ipython3
