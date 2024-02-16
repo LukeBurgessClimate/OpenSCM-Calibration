@@ -171,51 +171,10 @@ atmosphere_mass =5.18e18
 # UNIT_REGISTRY.Quantity(5.18e18, "kg") 
 atmosphere_mole_outer = atmosphere_mass / atmosphere_molar_mass
 atmosphere_mole_outer
-
-# def to_ppb_yr(
-#     emms,
-#     molar_mass,
-#     atmosphere_mole=atmosphere_mole_outer,
-# ):
-#     emms_mole = emms / molar_mass
-#     emms_mole.to("mole / yr")
-
-#     emms_ppb = (emms_mole / atmosphere_mole) * UNIT_REGISTRY.Quantity(1e9, "ppb")
-
-#     return emms_ppb.to("ppb / yr")
 ```
 
 ```{code-cell} ipython3
-# def convert_emissions(i,gases, weights, atmosphere_mole_outer):
-#     """
-#     i: scmdata.ScmRun
-#     gases: list
-#     weights: list
-    
-#     Return scmdata with emissions in ppb / yr
-    
-#     """
-    
 
-#     temp = i.timeseries().copy()
-#     for gas,weight in zip(gases,weights):
-#         temp.filter(variable=gas)= weight / atmosphere_mole_outer * 1e9 * 1e6*temp.filter(variable=gas).values()
-#         temp.filter(variable=gas).unit = "ppb / yr"
-    
-#     return scmdata.ScmRun(temp)
-
-    
-# def mt_to_ppb_yr(
-#     emms,
-#     molar_mass,
-#     atmosphere_mole=atmosphere_mole_outer,
-# ):
-#     emms_mole = emms / molar_mass
-#     emms_mole
-
-#     emms_ppb = (emms_mole / atmosphere_mole) *1e9
-
-#     return emms_ppb
 ```
 
 ## Import Patterson
@@ -231,10 +190,6 @@ emissions_patt = emissions_patt.loc[emissions_patt["region"]=="World"].groupby([
 patterson=scmdata.ScmRun(emissions_patt).drop_meta("type")
 # patterson=scmdata.ScmRun(emissions_patt)
 patterson.timeseries()
-```
-
-```{code-cell} ipython3
-emissions_patt
 ```
 
 ```{code-cell} ipython3
@@ -658,7 +613,6 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years
             return dconc_dt, jac
         
     
-    years = years
 
 
 #     y0 = {
@@ -670,8 +624,8 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years
     y0 = {
         "ch4": UNIT_REGISTRY.Quantity(1680, "ppb"),
         "co": UNIT_REGISTRY.Quantity(60, "ppb"),
-        "h2": UNIT_REGISTRY.Quantity(510, "ppb"),
-        "oh": UNIT_REGISTRY.Quantity(2.9e-05, "ppb"),
+        "h2": UNIT_REGISTRY.Quantity(530, "ppb"),
+        "oh": UNIT_REGISTRY.Quantity(2.48e-05, "ppb"),
     } 
     
     to_solve = HydrogenBox(
@@ -721,6 +675,10 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years
 ### Target
 
 Use Jpl values to calculate a target.
+
+```{code-cell} ipython3
+concentrations.timeseries().iloc[:,0]
+```
 
 ```{code-cell} ipython3
 k1_jpl = UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s")
