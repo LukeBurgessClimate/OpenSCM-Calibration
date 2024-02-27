@@ -230,7 +230,7 @@ patterson.timeseries()
 ```
 
 ```{code-cell} ipython3
-emissions_patt
+# emissions_patt
 ```
 
 ### add natural emissions
@@ -287,11 +287,7 @@ emissions_ppb.timeseries()
 ```
 
 ```{code-cell} ipython3
-atmosphere_mole_outer
-```
-
-```{code-cell} ipython3
-
+# atmosphere_mole_outer
 ```
 
 ## Add OH concentration
@@ -331,7 +327,9 @@ path = 'datasets/pnas.1616426114.sd01.xls'
 rigby = import_rigby(path, start=1980,end=2014)
 air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
 # air_number = UNIT_REGISTRY.Quantity(1.57e19, "1 / cm^3") # https://www.nature.com/articles/s41467-022-35419-7/tables/1
- 
+# latitude factor
+# lat_factor = 0.48
+# rigby= rigby * lat_factor
 #Convert units and correct timerange
 rigby= rigby*UNIT_REGISTRY.Quantity(1e9, "ppb")/ air_number
 rigby =rigby.filter(year=years)
@@ -406,41 +404,11 @@ for vdf in concentrations.groupby("variable"):
 ```
 
 ```{code-cell} ipython3
-# def import_rigby(path,start,end):
-#     path = 'datasets/pnas.1616426114.sd01.xls'
-#     rigby =pd.read_excel(path,header=4)
-#     rigby_val=np.array([rigby["Unnamed: 2"].values])
-#     rigby_year= np.arange(start,end+1)
-#     rigby_oh= scmdata.ScmRun(
-#             pd.DataFrame(
-#                 rigby_val,
-#                 index=pd.MultiIndex.from_arrays(
-#                     [
-#                         [ "Atmospheric Concentrations|OH"],
-#                         ["1/ cm ** 3"],
-#                         [
-#                             "World",
-#                         ],
-#                         [
-#                             "None",
-#                         ],
-#                         [
-#                             "historical",
-#                         ],
-#                     ],
-#                     names=["variable", "unit", "region", "model", "scenario"],
-#                 ),
-#                 columns=rigby_year,
-#             )
-#         )
-#     return rigby_oh
-    
-# start = 1980
-# end = 2014
-# path = 'datasets/pnas.1616426114.sd01.xls'
 
-# rigby = import_rigby(path, 1980,2014)
-# rigby.timeseries()
+```
+
+```{code-cell} ipython3
+
 ```
 
 ```{code-cell} ipython3
@@ -448,7 +416,7 @@ for vdf in concentrations.groupby("variable"):
 
 # oh_concentrations= scmdata.ScmRun(
 #     pd.DataFrame(
-#         2.9e-5 * np.ones(years.shape)[np.newaxis, :],
+#         2e-5 * np.ones(years.shape)[np.newaxis, :],
 #         index=pd.MultiIndex.from_arrays(
 #             [
 #                 [ "Atmospheric Concentrations|OH"],
@@ -484,7 +452,7 @@ for vdf in concentrations.groupby("variable"):
 ## Add OH emissions
 
 ```{code-cell} ipython3
-oh_vals =1464 * np.ones(years.shape)[np.newaxis, :]
+oh_vals =1500 * np.ones(years.shape)[np.newaxis, :]
 # append OH emissions
 oh_scen = scmdata.ScmRun(
          pd.DataFrame(
@@ -604,11 +572,7 @@ def get_emms_func(scmrun):
 ```
 
 ```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-def do_experiments(k1,k2, k3, input_emms, concentrations,years
+def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
     Run model experiments
@@ -802,18 +766,18 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years
 #         "h2": UNIT_REGISTRY.Quantity(432.33, "ppb"),
 #         "oh": UNIT_REGISTRY.Quantity(2.22e-05, "ppb"),
 #     } 
-    y0 = {
-        "ch4": UNIT_REGISTRY.Quantity(1680, "ppb"),
-        "co": UNIT_REGISTRY.Quantity(60, "ppb"),
-        "h2": UNIT_REGISTRY.Quantity(530, "ppb"),
-        "oh": UNIT_REGISTRY.Quantity(4.48e-05, "ppb"),
-    } 
+#     y0 = {
+#         "ch4": UNIT_REGISTRY.Quantity(1680, "ppb"),
+#         "co": UNIT_REGISTRY.Quantity(60, "ppb"),
+#         "h2": UNIT_REGISTRY.Quantity(530, "ppb"),
+#         "oh": UNIT_REGISTRY.Quantity(2.48e-05, "ppb"),
+#     } 
     
     to_solve = HydrogenBox(
     k1=k1,
     k2=k2,
     k3=k3,
-    kx=UNIT_REGISTRY.Quantity(1, "1 / s"),
+    kx=UNIT_REGISTRY.Quantity(0.8, "1 / s"),
     tau_dep_h2=UNIT_REGISTRY.Quantity(2.5, "year"),
     )
     scens_res=[]
@@ -869,20 +833,35 @@ emissions_ppb
 ```
 
 ```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+def get_y0(conc):
+    '''
+    returns correct format for y0
+    Lettercase of gas not important for solve function
+    
+    '''
+    gases = ["CH4","CO","H2","OH"]
+    y0 = {gas.lower() : UNIT_REGISTRY.Quantity(conc.filter(variable = '*|'+gas).timeseries().iloc[0,0], 'ppb')for gas in gases}
+    return y0
+
+y0=get_y0(concentrations)
+
 truth = {
     "k1" : UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s"),
     "k2" : UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s") ,
     "k3" : UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s"),
     "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
-    "years" : years
+    "years" : years,
+    "y0" : y0,
 }
-# truth = {
-#     "k1" : UNIT_REGISTRY.Quantity(6.3e-2, "cm^3 / s"),
-#     "k2" : UNIT_REGISTRY.Quantity(6.7e-2, "cm^3 / s") ,
-#     "k3" : UNIT_REGISTRY.Quantity(2e-2, "cm^3 / s"),
-#     "kx" :UNIT_REGISTRY.Quantity(1.062, "1 / s"),
-# }
 
 # get correct format of target
 target = do_experiments(**truth,)
@@ -914,6 +893,10 @@ The next thing is to decide how we're going to calculate the cost function. Ther
 ```
 
 ```{code-cell} ipython3
+concentrations.timeseries().mean(axis=1)
+```
+
+```{code-cell} ipython3
 # normalisation = pd.Series(
 # #     [0.1,0.1,0.1,0.1],
 #     [1,1,1],
@@ -935,18 +918,37 @@ The next thing is to decide how we're going to calculate the cost function. Ther
 ```
 
 ```{code-cell} ipython3
-normalisation = pd.Series(
-#     [0.1,0.1,0.1,0.1],
-    [1,1,1,1],
+[gas for gas in concentrations["variable"]]
+```
 
-    index=pd.MultiIndex.from_arrays(
-        (
-            [
+```{code-cell} ipython3
+[
                 "Atmospheric Concentrations|CH4",
                 "Atmospheric Concentrations|H2",
                 "Atmospheric Concentrations|CO",
                 "Atmospheric Concentrations|OH",
-            ],
+            ]
+```
+
+```{code-cell} ipython3
+normalisation_values
+normalisation
+```
+
+```{code-cell} ipython3
+normalisation_values= concentrations.timeseries().mean(axis=1).values
+normalisation_names=[gas for gas in concentrations["variable"]]
+
+#Reduce OH normalisation
+normalisation_values[3]=1e20
+
+
+normalisation = pd.Series(
+    normalisation_values,
+
+    index=pd.MultiIndex.from_arrays(
+        (
+            normalisation_names,
             ["ppb","ppb","ppb","ppb"],
         ),
         names=["variable", "unit"],
@@ -1037,7 +1039,7 @@ def do_model_runs_input_generator(
         Inputs for :func:`do_experiments
     """
     return {"k1": k1, "k2": k2, "k3": k3, "input_emms" : emissions_ppb, "concentrations" : concentrations,
-    "years" : years}
+    "years" : years, "y0": y0,}
 ```
 
 ```{code-cell} ipython3
@@ -1058,7 +1060,7 @@ cost_calculator.calculate_cost(model_runner.run_model([1e-10, 1e-10, 1e-13]))
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([1e-15, 1e-15, 1e-13])
+start = np.array([5e-15, 5e-15, 2e-13])
 start
 ```
 
@@ -1121,10 +1123,10 @@ seed = 12849
 ## Optimisation parameters - here we use short runs
 ## TODO: other repo with full runs
 # Tolerance to set for convergance
-atol = 1
+atol = 0
 tol = 0.002
 # Maximum number of iterations to use
-maxiter = 16
+maxiter = 32
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
@@ -1261,12 +1263,12 @@ start_local
 
 ```{code-cell} ipython3
 # Optimisation parameters
-tol = 1e-5
+tol = 1e-3
 # Maximum number of iterations to use
-maxiter = 16
+maxiter = 50
 
 # I think this is how this works
-max_n_runs = len(parameters) + 2 * maxiter
+max_n_runs = len(parameters) + 5 * maxiter
 
 # Lots of options here
 method = "Nelder-mead"
@@ -1326,6 +1328,7 @@ with tqdm(total=max_n_runs) as pbar:
         method=method,
         options={"maxiter": maxiter},
         callback=proxy.callback_minimize,
+        bounds=bounds
     )
 
 plt.close()
@@ -1411,8 +1414,8 @@ np.random.seed(424242)
 # the posterior appropriately, normally requires looking at the
 # chains and then just running them for longer if needed.
 # This number is definitely too small
-max_iterations = 2000
-burnin = 1000
+max_iterations = 40000
+burnin =35000
 thin = 2
 
 ## Visualisation options
@@ -1561,4 +1564,12 @@ with Pool(processes=processes) as pool:
 # Close all the figures
 for _ in range(4):
     plt.close()
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+
 ```
