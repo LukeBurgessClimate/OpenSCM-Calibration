@@ -12,7 +12,7 @@ kernelspec:
 ---
 
 ```{code-cell} ipython3
-%matplotlib inline
+# %matplotlib inline
 ```
 
 ```{code-cell} ipython3
@@ -245,6 +245,8 @@ patterson.timeseries()
 
 ```{code-cell} ipython3
 path= "datasets/rcmip-emissions-annual-means-v5-1-0.csv"
+rcmip_full= scmdata.ScmRun(path, lowercase_cols=True).filter(region="World").filter(variable=["*|CH4","*|CO"])
+
 rcmip = scmdata.ScmRun(path, lowercase_cols=True).filter(scenario="historical",region="World").filter(variable=["*|CH4","*|CO"])
 # rcmip = rcmip.drop_meta(["activity_id", "mip_era"])
 rcmip
@@ -452,7 +454,7 @@ for vdf in concentrations.groupby("variable"):
 ## Add OH emissions
 
 ```{code-cell} ipython3
-oh_vals =1500 * np.ones(years.shape)[np.newaxis, :]
+oh_vals =1440 * np.ones(years.shape)[np.newaxis, :]
 # append OH emissions
 oh_scen = scmdata.ScmRun(
          pd.DataFrame(
@@ -572,6 +574,163 @@ def get_emms_func(scmrun):
 ```
 
 ```{code-cell} ipython3
+@define
+class HydrogenBox:
+    k1: pint.Quantity[float] = field(
+        validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+    )
+    """Rate constant for reaction of methane and hydroxyl radical [cm^3 / s]"""
+
+    k2: pint.Quantity[float] = field(
+        validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+    )
+    """Rate constant for reaction of hydrogen and hydroxyl radical [cm^3 / s]"""
+
+    k3: pint.Quantity[float] = field(
+        validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
+    )
+    """Rate constant for reaction of carbon monoxide and hydroxyl radical [cm^3 / s]"""
+
+    kx: pint.Quantity[float] = field(validator=check_units(f"1 / {TIME_UNIT}"))
+    """Rate constant for reaction of hydroxyl radical and everything else [1 / s]"""
+
+    tau_dep_h2: pint.Quantity[float] = field(validator=check_units(TIME_UNIT))
+    """Partial lifetime of hydrogen due to biogenic soil sinks [s]"""
+
+    air_number: pint.Quantity[float] = field(
+        validator=check_units(f"1 / {LENGTH_UNIT}^3"),
+        default=UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3"),
+    )
+    """Density of air [1 / cm^3]"""
+
+    def solve(
+        self,
+        emissions: scmdata.ScmRun,
+        out_steps: pint.Quantity[np.array],
+        y0: Dict[str, pint.Quantity[float]],
+        method="Radau",
+        max_step=365 * 24 * 60 * 60,
+    ):
+        scenario = emissions.get_unique_meta("scenario", True)
+        model = emissions.get_unique_meta("model", True)
+
+        emms_func = get_emms_func(emissions)
+        dconc_dt, jac = self._get_dconc_dt_jac(emms_func)
+        out_steps_mag = out_steps.to(TIME_UNIT).magnitude
+
+        y0_h = [y0[c].to(CONC_UNIT).magnitude for c in _CONC_ORDER]
+
+        sol = scipy.integrate.solve_ivp(
+            dconc_dt,
+            [out_steps_mag[0], out_steps_mag[-1]],
+            y0_h,
+            method=method,
+            vectorized=True,
+            max_step=max_step,
+            jac=jac,
+            t_eval=out_steps_mag,
+        )
+        #         sol.message
+
+        out_years = pint.Quantity(sol.t, TIME_UNIT).to("year").magnitude
+
+        out = scmdata.ScmRun(
+            pd.DataFrame(
+                sol.y,
+                index=pd.MultiIndex.from_arrays(
+                    [
+                        [
+                            f"Atmospheric Concentrations|{c.upper()}"
+                            for c in _CONC_ORDER
+                        ],
+                        [CONC_UNIT, CONC_UNIT, CONC_UNIT, CONC_UNIT],
+                        [
+                            "World",
+                            "World",
+                            "World",
+                            "World",
+                        ],
+                        [model, model, model, model],
+                        [
+                            scenario,
+                            scenario,
+                            scenario,
+                            scenario,
+                        ],
+                    ],
+                    names=["variable", "unit", "region", "model", "scenario"],
+                ),
+                columns=out_years,
+            )
+        )
+
+        return out
+
+    def _get_dconc_dt_jac(self, emms_func):
+        per_cm3_to_ppb = self.air_number / UNIT_REGISTRY.Quantity(1e9, "ppb")
+
+        k1_mag = (self.k1 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+        k2_mag = (self.k2 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+        tau_dep_mag = self.tau_dep_h2.to(TIME_UNIT).magnitude
+        k3_mag = (self.k3 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
+        kx_mag = self.kx.to(f"1 / {TIME_UNIT}").magnitude
+
+        def dconc_dt(t, y):
+            concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
+
+            emms_ch4_mag, emms_h2_mag, emms_co_mag, emms_oh_mag = emms_func(t)
+
+            dch4dt = emms_ch4_mag - k1_mag * concs["oh"] * concs["ch4"]
+            dh2dt = (
+                emms_h2_mag
+                - k2_mag * concs["oh"] * concs["h2"]
+                - concs["h2"] / tau_dep_mag
+            )
+            dcodt = (
+                emms_co_mag
+                - k3_mag * concs["oh"] * concs["co"]
+                + k1_mag * concs["oh"] * concs["ch4"]
+            )
+            dohdt = (
+                emms_oh_mag
+                - kx_mag * concs["oh"]
+                - k3_mag * concs["oh"] * concs["co"]
+                - k2_mag * concs["oh"] * concs["h2"]
+                - k1_mag * concs["oh"] * concs["ch4"]
+            )
+
+            out = {"ch4": dch4dt, "h2": dh2dt, "co": dcodt, "oh": dohdt}
+            out = [out[c] for c in _CONC_ORDER]
+
+            return out
+
+        def jac(t, y):
+            concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
+
+            return [
+                [-k1_mag * concs["oh"], 0, 0, -k1_mag * concs["ch4"]],
+                [0, -k2_mag * concs["oh"] - 1 / tau_dep_mag, 0, -k2_mag * concs["h2"]],
+                [
+                    k1_mag * concs["oh"],
+                    0,
+                    -k3_mag * concs["oh"],
+                    -k3_mag * concs["co"] + k1_mag * concs["ch4"],
+                ],
+                [
+                    -k1_mag * concs["oh"],
+                    -k2_mag * concs["oh"],
+                    -k3_mag * concs["oh"],
+                    -kx_mag
+                    - k3_mag * concs["co"]
+                    - k2_mag * concs["h2"]
+                    - k1_mag * concs["ch4"],
+                ],
+            ]
+
+        return dconc_dt, jac
+```
+
+```{code-cell} ipython3
 def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
@@ -601,160 +760,7 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
 
     
     """
-    @define
-    class HydrogenBox:
-        k1: pint.Quantity[float] = field(
-            validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
-        )
-        """Rate constant for reaction of methane and hydroxyl radical [cm^3 / s]"""
-
-        k2: pint.Quantity[float] = field(
-            validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
-        )
-        """Rate constant for reaction of hydrogen and hydroxyl radical [cm^3 / s]"""
-
-        k3: pint.Quantity[float] = field(
-            validator=check_units(f"{LENGTH_UNIT}^3 / {TIME_UNIT}")
-        )
-        """Rate constant for reaction of carbon monoxide and hydroxyl radical [cm^3 / s]"""
-
-        kx: pint.Quantity[float] = field(validator=check_units(f"1 / {TIME_UNIT}"))
-        """Rate constant for reaction of hydroxyl radical and everything else [1 / s]"""
-
-        tau_dep_h2: pint.Quantity[float] = field(validator=check_units(TIME_UNIT))
-        """Partial lifetime of hydrogen due to biogenic soil sinks [s]"""
-
-        air_number: pint.Quantity[float] = field(
-            validator=check_units(f"1 / {LENGTH_UNIT}^3"),
-            default=UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3"),
-        )
-        """Density of air [1 / cm^3]"""
-
-        def solve(
-            self,
-            emissions: scmdata.ScmRun,
-            out_steps: pint.Quantity[np.array],
-            y0: Dict[str, pint.Quantity[float]],
-            method="Radau",
-            max_step=365 * 24 * 60 * 60,
-        ):
-            scenario = emissions.get_unique_meta("scenario", True)
-            model = emissions.get_unique_meta("model", True)
-
-            emms_func = get_emms_func(emissions)
-            dconc_dt, jac = self._get_dconc_dt_jac(emms_func)
-            out_steps_mag = out_steps.to(TIME_UNIT).magnitude
-
-            y0_h = [y0[c].to(CONC_UNIT).magnitude for c in _CONC_ORDER]
-
-            sol = scipy.integrate.solve_ivp(
-                dconc_dt,
-                [out_steps_mag[0], out_steps_mag[-1]],
-                y0_h,
-                method=method,
-                vectorized=True,
-                max_step=max_step,
-                jac=jac,
-                t_eval=out_steps_mag,
-            )
-            #         sol.message
-
-            out_years = pint.Quantity(sol.t, TIME_UNIT).to("year").magnitude
-
-            out = scmdata.ScmRun(
-                pd.DataFrame(
-                    sol.y,
-                    index=pd.MultiIndex.from_arrays(
-                        [
-                            [
-                                f"Atmospheric Concentrations|{c.upper()}"
-                                for c in _CONC_ORDER
-                            ],
-                            [CONC_UNIT, CONC_UNIT, CONC_UNIT, CONC_UNIT],
-                            [
-                                "World",
-                                "World",
-                                "World",
-                                "World",
-                            ],
-                            [model, model, model, model],
-                            [
-                                scenario,
-                                scenario,
-                                scenario,
-                                scenario,
-                            ],
-                        ],
-                        names=["variable", "unit", "region", "model", "scenario"],
-                    ),
-                    columns=out_years,
-                )
-            )
-
-            return out
-
-        def _get_dconc_dt_jac(self, emms_func):
-            per_cm3_to_ppb = self.air_number / UNIT_REGISTRY.Quantity(1e9, "ppb")
-
-            k1_mag = (self.k1 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
-            k2_mag = (self.k2 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
-            tau_dep_mag = self.tau_dep_h2.to(TIME_UNIT).magnitude
-            k3_mag = (self.k3 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
-            kx_mag = self.kx.to(f"1 / {TIME_UNIT}").magnitude
-
-            def dconc_dt(t, y):
-                concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
-
-                emms_ch4_mag, emms_h2_mag, emms_co_mag, emms_oh_mag = emms_func(t)
-
-                dch4dt = emms_ch4_mag - k1_mag * concs["oh"] * concs["ch4"]
-                dh2dt = (
-                    emms_h2_mag
-                    - k2_mag * concs["oh"] * concs["h2"]
-                    - concs["h2"] / tau_dep_mag
-                )
-                dcodt = (
-                    emms_co_mag
-                    - k3_mag * concs["oh"] * concs["co"]
-                    + k1_mag * concs["oh"] * concs["ch4"]
-                )
-                dohdt = (
-                    emms_oh_mag
-                    - kx_mag * concs["oh"]
-                    - k3_mag * concs["oh"] * concs["co"]
-                    - k2_mag * concs["oh"] * concs["h2"]
-                    - k1_mag * concs["oh"] * concs["ch4"]
-                )
-
-                out = {"ch4": dch4dt, "h2": dh2dt, "co": dcodt, "oh": dohdt}
-                out = [out[c] for c in _CONC_ORDER]
-
-                return out
-
-            def jac(t, y):
-                concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
-
-                return [
-                    [-k1_mag * concs["oh"], 0, 0, -k1_mag * concs["ch4"]],
-                    [0, -k2_mag * concs["oh"] - 1 / tau_dep_mag, 0, -k2_mag * concs["h2"]],
-                    [
-                        k1_mag * concs["oh"],
-                        0,
-                        -k3_mag * concs["oh"],
-                        -k3_mag * concs["co"] + k1_mag * concs["ch4"],
-                    ],
-                    [
-                        -k1_mag * concs["oh"],
-                        -k2_mag * concs["oh"],
-                        -k3_mag * concs["oh"],
-                        -kx_mag
-                        - k3_mag * concs["co"]
-                        - k2_mag * concs["h2"]
-                        - k1_mag * concs["ch4"],
-                    ],
-                ]
-
-            return dconc_dt, jac
+   
         
     
     years = years
@@ -931,8 +937,7 @@ concentrations.timeseries().mean(axis=1)
 ```
 
 ```{code-cell} ipython3
-normalisation_values
-normalisation
+
 ```
 
 ```{code-cell} ipython3
@@ -1092,15 +1097,15 @@ truth = {
 # }
 bounds_dict = {
     "k1": [
-        UREG.Quantity(1e-16, "cm^3 / s"),
+        UREG.Quantity(0, "cm^3 / s"),
         UREG.Quantity(1e-14, "cm^3 / s"),
     ],
     "k2": [
-        UREG.Quantity(1e-16, "cm^3 / s"),
+        UREG.Quantity(0, "cm^3 / s"),
         UREG.Quantity(1e-14, "cm^3 / s"),
     ],
     "k3": [
-        UREG.Quantity(1e-15, "cm^3 / s"),
+        UREG.Quantity(0, "cm^3 / s"),
         UREG.Quantity(1e-12, "cm^3 / s"),
     ],
 
@@ -1263,7 +1268,7 @@ start_local
 
 ```{code-cell} ipython3
 # Optimisation parameters
-tol = 1e-3
+tol = 1e-5
 # Maximum number of iterations to use
 maxiter = 50
 
@@ -1335,239 +1340,388 @@ plt.close()
 optimize_res_local
 ```
 
+```{code-cell} ipython3
+
+```
+
 ## MCMC
 
 To run MCMC, we use the [emcee](https://emcee.readthedocs.io/) package. This has heaps of options for running MCMC and is really user friendly. All the different available moves/samplers are listed [here](https://emcee.readthedocs.io/en/stable/user/moves/).
 
 ```{code-cell} ipython3
-def neg_log_prior_bounds(x: np.ndarray, bounds: np.ndarray) -> float:
-    """
-    Log prior that just checks proposal is in bounds
+# def neg_log_prior_bounds(x: np.ndarray, bounds: np.ndarray) -> float:
+#     """
+#     Log prior that just checks proposal is in bounds
 
-    Parameters
-    ----------
-    x
-        Parameter array
+#     Parameters
+#     ----------
+#     x
+#         Parameter array
 
-    bounds
-        Bounds for each parameter (must have same
-        order as x)
-    """
-    in_bounds = (x > bounds[:, 0]) & (x < bounds[:, 1])
-    if np.all(in_bounds):
-        return 0
+#     bounds
+#         Bounds for each parameter (must have same
+#         order as x)
+#     """
+#     in_bounds = (x > bounds[:, 0]) & (x < bounds[:, 1])
+#     if np.all(in_bounds):
+#         return 0
 
-    return -np.inf
+#     return -np.inf
 
 
-neg_log_prior = partial(neg_log_prior_bounds, bounds=np.array(bounds))
+# neg_log_prior = partial(neg_log_prior_bounds, bounds=np.array(bounds))
 ```
 
 ```{code-cell} ipython3
-def log_prob(x) -> Tuple[float, float, float]:
-    neg_ll_prior_x = neg_log_prior(x)
+# def log_prob(x) -> Tuple[float, float, float]:
+#     neg_ll_prior_x = neg_log_prior(x)
 
-    if not np.isfinite(neg_ll_prior_x):
-        return -np.inf, None, None
+#     if not np.isfinite(neg_ll_prior_x):
+#         return -np.inf, None, None
 
-    try:
-        model_results = model_runner.run_model(x)
-    except ValueError:
-        return -np.inf, None, None
+#     try:
+#         model_results = model_runner.run_model(x)
+#     except ValueError:
+#         return -np.inf, None, None
 
-    sses = cost_calculator.calculate_cost(model_results)
-    neg_ll_x = -sses / 2
-    ll = neg_ll_x + neg_ll_prior_x
+#     sses = cost_calculator.calculate_cost(model_results)
+#     neg_ll_x = -sses / 2
+#     ll = neg_ll_x + neg_ll_prior_x
 
-    return ll, neg_ll_prior_x, neg_ll_x
+#     return ll, neg_ll_prior_x, neg_ll_x
 ```
 
 We're using the DIME proposal from [emcwrap](https://github.com/gboehl/emcwrap). This claims to have an adaptive proposal distribution so requires less fine tuning and is less sensitive to the starting point.
 
 ```{code-cell} ipython3
-ndim = len(bounds)
-# emcwrap docs suggest 5 * ndim
-nwalkers = 5 * ndim
+# ndim = len(bounds)
+# # emcwrap docs suggest 5 * ndim
+# nwalkers = 5 * ndim
 
-start_emcee = [s + s / 100 * np.random.rand(nwalkers) for s in optimize_res_local.x]
-start_emcee = np.vstack(start_emcee).T
+# start_emcee = [s + s / 100 * np.random.rand(nwalkers) for s in optimize_res_local.x]
+# start_emcee = np.vstack(start_emcee).T
 
-move = DIMEMove()
+# move = DIMEMove()
 ```
 
 ```{code-cell} ipython3
-# Use HDF5 backend
-filename = "basic-demo-mcmc.h5"
-backend = emcee.backends.HDFBackend(filename)
-backend.reset(nwalkers, ndim)
+# # Use HDF5 backend
+# filename = "basic-demo-mcmc.h5"
+# backend = emcee.backends.HDFBackend(filename)
+# backend.reset(nwalkers, ndim)
 ```
 
 ```{code-cell} ipython3
-# How many parallel process to use
-processes = 4
+# # How many parallel process to use
+# processes = 4
 
-# Set the seed to ensure reproducibility
-np.random.seed(424242)
+# # Set the seed to ensure reproducibility
+# np.random.seed(424242)
 
-## MCMC options
-# Unclear at the start how many iterations are needed to sample
-# the posterior appropriately, normally requires looking at the
-# chains and then just running them for longer if needed.
-# This number is definitely too small
-max_iterations = 40000
-burnin =35000
-thin = 2
+# ## MCMC options
+# # Unclear at the start how many iterations are needed to sample
+# # the posterior appropriately, normally requires looking at the
+# # chains and then just running them for longer if needed.
+# # This number is definitely too small
+# max_iterations = 40000
+# burnin =35000
+# thin = 2
 
-## Visualisation options
-plot_every = 15
-convergence_ratio = 5
-parameter_order = [p[0] for p in parameters]
-neg_log_likelihood_name = "neg_ll"
-labels_chain = [neg_log_likelihood_name] + parameter_order
+# ## Visualisation options
+# plot_every = 15
+# convergence_ratio = 5
+# parameter_order = [p[0] for p in parameters]
+# neg_log_likelihood_name = "neg_ll"
+# labels_chain = [neg_log_likelihood_name] + parameter_order
 
-# Stores for autocorr over steps
-autocorr = np.zeros(max_iterations)
-autocorr_steps = np.zeros(max_iterations)
-index = 0
+# # Stores for autocorr over steps
+# autocorr = np.zeros(max_iterations)
+# autocorr_steps = np.zeros(max_iterations)
+# index = 0
 
-## Setup plots
-fig_chain, axd_chain = plt.subplot_mosaic(
-    mosaic=[[l] for l in labels_chain],
-    figsize=(10, 5),
-)
-holder_chain = display(fig_chain, display_id=True)
+# ## Setup plots
+# fig_chain, axd_chain = plt.subplot_mosaic(
+#     mosaic=[[l] for l in labels_chain],
+#     figsize=(10, 5),
+# )
+# holder_chain = display(fig_chain, display_id=True)
 
-fig_dist, axd_dist = plt.subplot_mosaic(
-    mosaic=[[l] for l in parameter_order],
-    figsize=(10, 5),
-)
-holder_dist = display(fig_dist, display_id=True)
+# fig_dist, axd_dist = plt.subplot_mosaic(
+#     mosaic=[[l] for l in parameter_order],
+#     figsize=(10, 5),
+# )
+# holder_dist = display(fig_dist, display_id=True)
 
-fig_corner = plt.figure(figsize=(6, 6))
-holder_corner = display(fig_dist, display_id=True)
+# fig_corner = plt.figure(figsize=(6, 6))
+# holder_corner = display(fig_dist, display_id=True)
 
-fig_tau, ax_tau = plt.subplots(
-    nrows=1,
-    ncols=1,
-    figsize=(4, 4),
-)
-holder_tau = display(fig_tau, display_id=True)
+# fig_tau, ax_tau = plt.subplots(
+#     nrows=1,
+#     ncols=1,
+#     figsize=(4, 4),
+# )
+# holder_tau = display(fig_tau, display_id=True)
 
-# Plottting helper
-truths_corner = [truth[k].to(u).m for k, u in parameters]
+# # Plottting helper
+# truths_corner = [truth[k].to(u).m for k, u in parameters]
 
-with Pool(processes=processes) as pool:
-    sampler = emcee.EnsembleSampler(
-        nwalkers,
-        ndim,
-        log_prob,
-        moves=move,
-        backend=backend,
-        blobs_dtype=[("neg_log_prior", float), ("neg_log_likelihood", float)],
-        pool=pool,
-    )
+# with Pool(processes=processes) as pool:
+#     sampler = emcee.EnsembleSampler(
+#         nwalkers,
+#         ndim,
+#         log_prob,
+#         moves=move,
+#         backend=backend,
+#         blobs_dtype=[("neg_log_prior", float), ("neg_log_likelihood", float)],
+#         pool=pool,
+#     )
 
-    for sample in sampler.sample(
-        # If statement in case we're continuing a run rather than starting fresh
-        start_emcee if sampler.iteration < 1 else sampler.get_last_sample(),
-        iterations=max_iterations,
-        progress="notebook",
-        progress_kwargs={"leave": True},
-    ):
-        if sampler.iteration % plot_every or sampler.iteration < 2:
-            continue
+#     for sample in sampler.sample(
+#         # If statement in case we're continuing a run rather than starting fresh
+#         start_emcee if sampler.iteration < 1 else sampler.get_last_sample(),
+#         iterations=max_iterations,
+#         progress="notebook",
+#         progress_kwargs={"leave": True},
+#     ):
+#         if sampler.iteration % plot_every or sampler.iteration < 2:
+#             continue
 
-        if sampler.iteration < burnin + 1:
-            in_burn_in = True
-        else:
-            in_burn_in = False
+#         if sampler.iteration < burnin + 1:
+#             in_burn_in = True
+#         else:
+#             in_burn_in = False
 
-        for ax in axd_chain.values():
-            ax.clear()
+#         for ax in axd_chain.values():
+#             ax.clear()
 
-        emcee_plotting.plot_chains(
-            inp=sampler,
-            burnin=burnin,
-            parameter_order=parameter_order,
-            axes_d=axd_chain,
-            neg_log_likelihood_name=neg_log_likelihood_name,
-        )
-        fig_chain.tight_layout()
-        holder_chain.update(fig_chain)
+#         emcee_plotting.plot_chains(
+#             inp=sampler,
+#             burnin=burnin,
+#             parameter_order=parameter_order,
+#             axes_d=axd_chain,
+#             neg_log_likelihood_name=neg_log_likelihood_name,
+#         )
+#         fig_chain.tight_layout()
+#         holder_chain.update(fig_chain)
 
-        if not in_burn_in:
-            chain_post_burnin = sampler.get_chain(discard=burnin)
-            if chain_post_burnin.shape[0] > 0:
-                acceptance_fraction = np.mean(
-                    get_acceptance_fractions(chain_post_burnin)
-                )
-                print(
-                    f"{chain_post_burnin.shape[0]} steps post burnin, "
-                    f"acceptance fraction: {acceptance_fraction}"
-                )
+#         if not in_burn_in:
+#             chain_post_burnin = sampler.get_chain(discard=burnin)
+#             if chain_post_burnin.shape[0] > 0:
+#                 acceptance_fraction = np.mean(
+#                     get_acceptance_fractions(chain_post_burnin)
+#                 )
+#                 print(
+#                     f"{chain_post_burnin.shape[0]} steps post burnin, "
+#                     f"acceptance fraction: {acceptance_fraction}"
+#                 )
 
-            for ax in axd_dist.values():
-                ax.clear()
+#             for ax in axd_dist.values():
+#                 ax.clear()
 
-            emcee_plotting.plot_dist(
-                inp=sampler,
-                burnin=burnin,
-                thin=thin,
-                parameter_order=parameter_order,
-                axes_d=axd_dist,
-                warn_singular=False,
+#             emcee_plotting.plot_dist(
+#                 inp=sampler,
+#                 burnin=burnin,
+#                 thin=thin,
+#                 parameter_order=parameter_order,
+#                 axes_d=axd_dist,
+#                 warn_singular=False,
+#             )
+#             fig_dist.tight_layout()
+#             holder_dist.update(fig_dist)
+
+#             try:
+#                 fig_corner.clear()
+#                 emcee_plotting.plot_corner(
+#                     inp=sampler,
+#                     burnin=burnin,
+#                     thin=thin,
+#                     parameter_order=parameter_order,
+#                     fig=fig_corner,
+#                     truths=truths_corner,
+#                 )
+#                 fig_corner.tight_layout()
+#                 holder_corner.update(fig_corner)
+#             except AssertionError:
+#                 pass
+
+#             autocorr_bits = get_autocorrelation_info(
+#                 sampler,
+#                 burnin=burnin,
+#                 thin=thin,
+#                 autocorr_tol=0,
+#                 convergence_ratio=convergence_ratio,
+#             )
+#             autocorr[index] = autocorr_bits["autocorr"]
+#             autocorr_steps[index] = sampler.iteration - burnin
+#             index += 1
+
+#             if np.sum(autocorr > 0) > 1 and np.sum(~np.isnan(autocorr)) > 1:
+#                 # plot autocorrelation, pretty specific to setup so haven't
+#                 # created separate function
+#                 ax_tau.clear()
+#                 ax_tau.plot(
+#                     autocorr_steps[:index],
+#                     autocorr[:index],
+#                 )
+#                 ax_tau.axline(
+#                     (0, 0), slope=1 / convergence_ratio, color="k", linestyle="--"
+#                 )
+#                 ax_tau.set_ylabel("Mean tau")
+#                 ax_tau.set_xlabel("Number steps (post burnin)")
+#                 holder_tau.update(fig_tau)
+
+# # Close all the figures
+# for _ in range(4):
+#     plt.close()
+```
+
+# Run Scenarios
+
+```{code-cell} ipython3
+path = 'Datasets/SSP_CMIP6_201811.csv'
+ssp_full= scmdata.ScmRun(path, lowercase_cols=True).filter(region="World").filter(variable=["*|CH4","*|CO"])
+```
+
+```{code-cell} ipython3
+ssp_full.get_unique_meta('scenario')
+```
+
+```{code-cell} ipython3
+ssp_245=ssp_full.filter(scenario=["SSP2-45"])
+```
+
+```{code-cell} ipython3
+ssp_245.timeseries()
+```
+
+```{code-cell} ipython3
+years = range(2015,2100)
+ssp_yearly = ssp_245.interpolate(years)
+[ssp_yearly.timeseries().values.squeeze()
+```
+
+```{code-cell} ipython3
+gases = ["Emissions|CH4","Emissions|CO","Emissions|H2"]
+molar_weights = [
+    UNIT_REGISTRY.Quantity(28, "g CH4/ mol"),
+    UNIT_REGISTRY.Quantity(16, "g CO/ mol"),
+    UNIT_REGISTRY.Quantity(2, "g H2/ mol"),
+]
+
+
+
+emissions_ppb = scmdata.ScmRun()
+for gas,weight in zip(gases,molar_weights):
+    emissions_ppb = emissions_ppb.append(emissions.filter(variable=gas)
+                                         /weight
+                                         /atmosphere_mole_outer
+                                          * UNIT_REGISTRY.Quantity(1e9,"ppb"))
+                                         
+emissions_ppb=emissions_ppb.convert_unit("ppb/a")
+emissions_ppb.timeseries()
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+oh_vals =1440 * np.ones(len(years))[np.newaxis, :]
+h2_vals =30.5 * np.ones(len(years))[np.newaxis, :]
+
+# append OH emissions
+oh_scen = scmdata.ScmRun(
+         pd.DataFrame(
+                h2_vals,oh_vals],
+                index=pd.MultiIndex.from_arrays(
+                    [
+                        [
+                           "Emissions|OH",
+                           
+                        ],
+                        [
+                            "ppb/a",
+                         
+                        ],
+                        [
+                           
+                            "World",
+                         
+                        ],
+                        [
+                            "None",
+                       
+                        ],
+                        [
+                            "ssp245",
+                         
+                        ],
+                    ],
+                    names=["variable", "unit", "region", "model", "scenario"],
+                ),
+                columns=years,
             )
-            fig_dist.tight_layout()
-            holder_dist.update(fig_dist)
+)
 
-            try:
-                fig_corner.clear()
-                emcee_plotting.plot_corner(
-                    inp=sampler,
-                    burnin=burnin,
-                    thin=thin,
-                    parameter_order=parameter_order,
-                    fig=fig_corner,
-                    truths=truths_corner,
-                )
-                fig_corner.tight_layout()
-                holder_corner.update(fig_corner)
-            except AssertionError:
-                pass
-
-            autocorr_bits = get_autocorrelation_info(
-                sampler,
-                burnin=burnin,
-                thin=thin,
-                autocorr_tol=0,
-                convergence_ratio=convergence_ratio,
-            )
-            autocorr[index] = autocorr_bits["autocorr"]
-            autocorr_steps[index] = sampler.iteration - burnin
-            index += 1
-
-            if np.sum(autocorr > 0) > 1 and np.sum(~np.isnan(autocorr)) > 1:
-                # plot autocorrelation, pretty specific to setup so haven't
-                # created separate function
-                ax_tau.clear()
-                ax_tau.plot(
-                    autocorr_steps[:index],
-                    autocorr[:index],
-                )
-                ax_tau.axline(
-                    (0, 0), slope=1 / convergence_ratio, color="k", linestyle="--"
-                )
-                ax_tau.set_ylabel("Mean tau")
-                ax_tau.set_xlabel("Number steps (post burnin)")
-                holder_tau.update(fig_tau)
-
-# Close all the figures
-for _ in range(4):
-    plt.close()
 ```
 
 ```{code-cell} ipython3
+gases = ["Emissions|CH4","Emissions|CO","Emissions|H2"]
+molar_weights = [
+    UNIT_REGISTRY.Quantity(28, "g CH4/ mol"),
+    UNIT_REGISTRY.Quantity(16, "g CO/ mol"),
+    UNIT_REGISTRY.Quantity(2, "g H2/ mol"),
+]
 
+
+
+emissions_ppb = scmdata.ScmRun()
+for gas,weight in zip(gases,molar_weights):
+    emissions_ppb = emissions_ppb.append(emissions.filter(variable=gas)
+                                         /weight
+                                         /atmosphere_mole_outer
+                                          * UNIT_REGISTRY.Quantity(1e9,"ppb"))
+                                         
+emissions_ppb=emissions_ppb.convert_unit("ppb/a")
+emissions_ppb.timeseries()
+```
+
+```{code-cell} ipython3
+ssp_yearly=ssp_yearly.append(oh_scen)
+ssp_yearly
+```
+
+```{code-cell} ipython3
+def get_inputs(values,parameters):
+    inputs = dict()
+    for value, (parameter,unit) in zip(values,parameters):
+        inputs[parameter]=UNIT_REGISTRY.Quantity(value, unit)
+        
+    return inputs
+```
+
+```{code-cell} ipython3
+inputs = get_inputs(optimize_res.x,parameters)
+```
+
+```{code-cell} ipython3
+optimised_box = HydrogenBox(
+    **inputs,
+    kx=UNIT_REGISTRY.Quantity(0.8, "1 / s"),
+    tau_dep_h2=UNIT_REGISTRY.Quantity(2.5, "year"))
+```
+
+```{code-cell} ipython3
+rcmip_full.timeseries()
+```
+
+```{code-cell} ipython3
+# path= "datasets/rcmip-emissions-annual-means-v5-1-0.csv"
+# rcmip_full= scmdata.ScmRun(path, lowercase_cols=True).filter(region="World").filter(variable=["*|CH4","*|CO"])
+```
+
+```{code-cell} ipython3
+# rcmip.plumeplot()
 ```
 
 ```{code-cell} ipython3

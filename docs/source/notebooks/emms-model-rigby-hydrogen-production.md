@@ -297,7 +297,7 @@ emissions_ppb.timeseries()
 ### Add OH emissions
 
 ```{code-cell} ipython3
-oh_vals = 1300 * np.ones(years.shape)[np.newaxis, :]
+oh_vals = 1380 * np.ones(years.shape)[np.newaxis, :]
 # append OH emissions
 oh_scen = scmdata.ScmRun(
          pd.DataFrame(
@@ -797,8 +797,8 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
     k1=k1,
     k2=k2,
     k3=k3,
-    kx=UNIT_REGISTRY.Quantity(0.8, "1 / s"),
-    tau_dep_h2=UNIT_REGISTRY.Quantity(2.63, "year"),
+    kx=UNIT_REGISTRY.Quantity(0.3, "1 / s"),
+    tau_dep_h2=UNIT_REGISTRY.Quantity(3, "year"),
     alpha=UNIT_REGISTRY.Quantity(0.37, "1")
     )
     scens_res=[]
@@ -834,7 +834,10 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
 #     )
 
 #     out["model"] = "example"
-    out = scmdata.run_append(scens_res)
+
+#     out = scmdata.run_append(scens_res).filter()
+    # drop OH
+    out = scmdata.run_append(scens_res).filter(variable=["*|CH4","*|CO","*|H2"])
     return out
 ```
 
@@ -898,11 +901,7 @@ for vdf in target.groupby("variable"):
 ```
 
 ```{code-cell} ipython3
-target["time"]
-```
-
-```{code-cell} ipython3
-target[]
+# target[]
 ```
 
 ```{code-cell} ipython3
@@ -918,43 +917,27 @@ concentrations.timeseries().mean(axis=1)
 ```
 
 ```{code-cell} ipython3
-normalisation = pd.Series(
-#     [0.1,0.1,0.1,0.1],
-    [1,1,1],
+# normalisation = pd.Series(
+# #     [0.1,0.1,0.1,0.1],
+#     [1,1,1],
 
-    index=pd.MultiIndex.from_arrays(
-        (
-            [
-                "Atmospheric Concentrations|CH4",
-                "Atmospheric Concentrations|H2",
-                "Atmospheric Concentrations|CO",
-            ]
-              ,
-            ["ppb","ppb","ppb"],
-        ),
-        names=["variable", "unit"],
-    ),
-)
-normalisation
+#     index=pd.MultiIndex.from_arrays(
+#         (
+#             [
+#                 "Atmospheric Concentrations|CH4",
+#                 "Atmospheric Concentrations|H2",
+#                 "Atmospheric Concentrations|CO",
+#             ]
+#               ,
+#             ["ppb","ppb","ppb"],
+#         ),
+#         names=["variable", "unit"],
+#     ),
+# )
+# normalisation
 ```
 
 ## normalisation with spinup time
-
-```{code-cell} ipython3
-type(normalisation_scen["time"].values)
-```
-
-```{code-cell} ipython3
-type(normalisation_series)
-```
-
-```{code-cell} ipython3
-target["time"]
-```
-
-```{code-cell} ipython3
-type(years)
-```
 
 ```{code-cell} ipython3
 normalisation_values= concentrations.timeseries().mean(axis=1).values
@@ -985,7 +968,18 @@ normalisation_scen = scmdata.ScmRun(
                     columns=normalisation_years
          )
 )
+```
 
+```{code-cell} ipython3
+
+# turn Hydroxyl off
+
+target= target.filter(variable=["*|CH4","*|CO","*|H2"])
+normalisation_scen=normalisation_scen.filter(variable=["*|CH4","*|CO","*|H2"])
+                    
+```
+
+```{code-cell} ipython3
 cost_calculator = OptCostCalculatorSSE(
     target=target,  model_col="model",normalisation=normalisation_scen,
 )
@@ -1021,46 +1015,46 @@ cost_calculator.normalisation
 ```
 
 ```{code-cell} ipython3
-normalisation_values= concentrations.timeseries().mean(axis=1).values
-normalisation_names=[gas for gas in concentrations["variable"]]
+# normalisation_values= concentrations.timeseries().mean(axis=1).values
+# normalisation_names=[gas for gas in concentrations["variable"]]
 
-#Reduce OH normalisation
-normalisation_values[3]=1e30
-# normalisation_values[2]=1e-5
-
-
-normalisation = pd.Series(
-    normalisation_values,
-
-    index=pd.MultiIndex.from_arrays(
-        (
-            normalisation_names,
-            ["ppb","ppb","ppb","ppb"],
-        ),
-        names=["variable", "unit"],
-    ),
-)
-normalisation
+# #Reduce OH normalisation
+# normalisation_values[3]=1e30
+# # normalisation_values[2]=1e-5
 
 
 # normalisation = pd.Series(
-# #     [0.1,0.1,0.1,0.1],
-#     [1,1,1,1e-9],
+#     normalisation_values,
 
 #     index=pd.MultiIndex.from_arrays(
 #         (
-#             [
-#                 "Atmospheric Concentrations|CH4",
-#                 "Atmospheric Concentrations|CO",
-#                 "Atmospheric Concentrations|H2",
-#                 "Atmospheric Concentrations|OH",
-#             ],
+#             normalisation_names,
 #             ["ppb","ppb","ppb","ppb"],
 #         ),
 #         names=["variable", "unit"],
 #     ),
 # )
 # normalisation
+
+
+# # normalisation = pd.Series(
+# # #     [0.1,0.1,0.1,0.1],
+# #     [1,1,1,1e-9],
+
+# #     index=pd.MultiIndex.from_arrays(
+# #         (
+# #             [
+# #                 "Atmospheric Concentrations|CH4",
+# #                 "Atmospheric Concentrations|CO",
+# #                 "Atmospheric Concentrations|H2",
+# #                 "Atmospheric Concentrations|OH",
+# #             ],
+# #             ["ppb","ppb","ppb","ppb"],
+# #         ),
+# #         names=["variable", "unit"],
+# #     ),
+# # )
+# # normalisation
 ```
 
 #
@@ -1080,7 +1074,11 @@ cost_calculator
 ```
 
 ```{code-cell} ipython3
-cost_calculator.calculate_cost(target) 
+cost_calculator
+```
+
+```{code-cell} ipython3
+cost_calculator.calculate_cost(target*1.2) 
 ```
 
 ```{code-cell} ipython3
@@ -1140,7 +1138,6 @@ model_runner = OptModelRunner.from_parameters(
     do_model_runs_input_generator=do_model_runs_input_generator,
     do_model_runs=do_experiments,
 )
-model_runner
 ```
 
 Now we can run from a plain numpy array (like scipy will use) and get a result that will be understood by our cost calculator.
@@ -1210,6 +1207,19 @@ Now we're ready to run our optimisation.
 ```
 
 ```{code-cell} ipython3
+parameters_names.append('.')
+```
+
+```{code-cell} ipython3
+parameters_names.append('.')
+parameters_names
+```
+
+```{code-cell} ipython3
+len(timeseries_axes_mosaic)
+```
+
+```{code-cell} ipython3
 # Number of parallel processes to use
 processes = 4
 
@@ -1220,9 +1230,9 @@ seed = 12849
 ## TODO: other repo with full runs
 # Tolerance to set for convergance
 atol = 0
-tol = 0.02
+tol = 0.0002
 # Maximum number of iterations to use
-maxiter = 16
+maxiter = 64
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
@@ -1255,9 +1265,15 @@ parameters_names = [v[0] for v in parameters]
 parameters_mosaic = list(more_itertools.repeat_each(parameters_names, 1))
 timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
 
+# if len(parameters_mosaic)==len(timeseries_axes_mosaic):
+#     while len(parameters_mosaic)<len(timeseries_axes_mosaic):
+#         parameters_mosaic.append(".")
+#     while len(parameters_mosaic)>len(timeseries_axes_mosaic):
+#         timeseries_axes_mosaic.append(".")
+
 fig, axd = plt.subplot_mosaic(
     mosaic=[
-       timeseries_axes_mosaic,
+       [cost_name]+timeseries_axes_mosaic,
         [cost_name]+parameters_mosaic,
     ],
     figsize=(12, 6),
