@@ -241,7 +241,7 @@ emissions["model"]="None"
 
 
 emissions = emissions.filter(year=years)
-emissions
+emissions.timeseries()
 ```
 
 ### Add natural emissions
@@ -258,8 +258,13 @@ def add_natural_emissions(scen, gases, natural):
 
 ```{code-cell} ipython3
 gases = ["Emissions|CH4","Emissions|CO","Emissions|H2"]
+### natural emissions
 natural = [220, 381,32.4]
 combined_emissions = add_natural_emissions(emissions,gases,natural)
+```
+
+```{code-cell} ipython3
+combined_emissions.timeseries()
 ```
 
 ```{code-cell} ipython3
@@ -285,7 +290,7 @@ molar_weights = [
 
 emissions_ppb = scmdata.ScmRun()
 for gas,weight in zip(gases,molar_weights):
-    emissions_ppb = emissions_ppb.append(emissions.filter(variable=gas)
+    emissions_ppb = emissions_ppb.append(combined_emissions.filter(variable=gas)
                                          /weight
                                          /atmosphere_mole_outer
                                           * UNIT_REGISTRY.Quantity(1e9,"ppb"))
@@ -294,10 +299,14 @@ emissions_ppb=emissions_ppb.convert_unit("ppb/a")
 emissions_ppb.timeseries()
 ```
 
+```{code-cell} ipython3
+emissions_ppb.timeseries()
+```
+
 ### Add OH emissions
 
 ```{code-cell} ipython3
-oh_vals = 1380 * np.ones(years.shape)[np.newaxis, :]
+oh_vals = 1440 * np.ones(years.shape)[np.newaxis, :]
 # append OH emissions
 oh_scen = scmdata.ScmRun(
          pd.DataFrame(
@@ -797,9 +806,9 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
     k1=k1,
     k2=k2,
     k3=k3,
-    kx=UNIT_REGISTRY.Quantity(0.3, "1 / s"),
-    tau_dep_h2=UNIT_REGISTRY.Quantity(3, "year"),
-    alpha=UNIT_REGISTRY.Quantity(0.37, "1")
+    kx=UNIT_REGISTRY.Quantity(0.8, "1 / s"),
+    tau_dep_h2=UNIT_REGISTRY.Quantity(2.63, "year"),
+    alpha=UNIT_REGISTRY.Quantity(0.32, "1")
     )
     scens_res=[]
     
@@ -1181,15 +1190,15 @@ truth = {
 # }
 bounds_dict = {
     "k1": [
-        UREG.Quantity(1e-17, "cm^3 / s"),
+        UREG.Quantity(1e-16, "cm^3 / s"),
         UREG.Quantity(1e-14, "cm^3 / s"),
     ],
     "k2": [
-        UREG.Quantity(1e-17, "cm^3 / s"),
+        UREG.Quantity(1e-16, "cm^3 / s"),
         UREG.Quantity(1e-14, "cm^3 / s"),
     ],
     "k3": [
-        UREG.Quantity(1e-15, "cm^3 / s"),
+        UREG.Quantity(1e-14, "cm^3 / s"),
         UREG.Quantity(1e-12, "cm^3 / s"),
     ],
 
@@ -1230,9 +1239,9 @@ seed = 12849
 ## TODO: other repo with full runs
 # Tolerance to set for convergance
 atol = 0
-tol = 0.0002
+tol = 0.02
 # Maximum number of iterations to use
-maxiter = 64
+maxiter = 16
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
