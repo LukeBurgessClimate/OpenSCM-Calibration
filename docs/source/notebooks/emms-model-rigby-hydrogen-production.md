@@ -808,7 +808,7 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
     k3=k3,
     kx=UNIT_REGISTRY.Quantity(0.8, "1 / s"),
     tau_dep_h2=UNIT_REGISTRY.Quantity(2.63, "year"),
-    alpha=UNIT_REGISTRY.Quantity(0.32, "1")
+    alpha=UNIT_REGISTRY.Quantity(0, "1")
     )
     scens_res=[]
     
