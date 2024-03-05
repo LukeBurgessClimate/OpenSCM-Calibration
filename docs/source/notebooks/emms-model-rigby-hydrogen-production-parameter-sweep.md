@@ -465,7 +465,6 @@ for vdf in concentrations.groupby("variable"):
 ```{code-cell} ipython3
 # air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
 # air_number
-
 ```
 
 ```{code-cell} ipython3
@@ -629,7 +628,7 @@ def get_emms_func(scmrun):
 ```
 
 ```{code-cell} ipython3
-def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
+def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, input_emms, concentrations,years, y0,
 ) -> scmdata.run.BaseScmRun:
     """
     Run model experiments
@@ -802,10 +801,10 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
 
                 return [
                     [-k1_mag * concs["oh"], 0, 0, -k1_mag * concs["ch4"]],
-                    [0,
-                     -k2_mag * concs["oh"] - 1 / tau_dep_mag + alpha_mag * k1_mag * concs["oh"] * concs["ch4"],
+                    [alpha_mag * k1_mag  * concs["oh"],
+                     -k2_mag * concs["oh"] - 1 / tau_dep_mag ,
                      0,
-                     -k2_mag * concs["h2"]
+                     -k2_mag * concs["h2"] + alpha_mag *k1_mag * concs["ch4"]
                     ],
                     [
                         k1_mag * concs["oh"],
@@ -826,7 +825,11 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
 
             return dconc_dt, jac
         
-    
+    def scale_hydroxyl(i,scale):
+        out=i.timeseries().copy()
+        out.loc[out.index.get_level_values("variable").isin(["Emissions|OH"])]*= scale
+        return scmdata.ScmRun(out)
+            
     years = years
 
 
@@ -842,15 +845,20 @@ def do_experiments(k1,k2, k3, input_emms, concentrations,years, y0
 #         "h2": UNIT_REGISTRY.Quantity(530, "ppb"),
 #         "oh": UNIT_REGISTRY.Quantity(2.48e-05, "ppb"),
 #     } 
+#     # scale hydroxyl
+#     input_emms = scale_hydroxyl(input_emms,hydroxyl_scale)
+    
+    
     
     to_solve = HydrogenBox(
     k1=k1,
     k2=k2,
     k3=k3,
-    kx=UNIT_REGISTRY.Quantity(0.72, "1 / s"),
-    tau_dep_h2=UNIT_REGISTRY.Quantity(2.63, "year"),
-    alpha=UNIT_REGISTRY.Quantity(0.32, "1")
+    kx=kx,
+    tau_dep_h2=tau_dep_h2,
+    alpha=alpha
     )
+    
     scens_res=[]
     
     time_axis_m=years
@@ -931,10 +939,14 @@ truth = {
     "k1" : UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s"),
     "k2" : UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s") ,
     "k3" : UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s"),
+    "kx" : UNIT_REGISTRY.Quantity(0.8, "1/ s"),
+    "tau_dep_h2" : UNIT_REGISTRY.Quantity(2.63, "year"),
+    "alpha" : UNIT_REGISTRY.Quantity(0.32,"1"),
     "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
     "years" : years,
     "y0" : y0,
+   
 }
 
 # get correct format of target
@@ -963,7 +975,7 @@ for vdf in target.groupby("variable"):
 The next thing is to decide how we're going to calculate the cost function. There are many options here, in this case we're going to use the sum of squared errors.
 
 ```{code-cell} ipython3
-concentrations.timeseries().mean(axis=1)
+# concentrations.timeseries().mean(axis=1)
 ```
 
 ```{code-cell} ipython3
@@ -1147,6 +1159,9 @@ parameters = [
     ("k1", f"{LENGTH_UNIT}^3 / {TIME_UNIT}"),
     ("k2", f"{LENGTH_UNIT}^3 / {TIME_UNIT}"),
     ("k3", f"{LENGTH_UNIT}^3 / {TIME_UNIT}"),
+    ("kx", f" 1 / {TIME_UNIT}"),
+    ("tau_dep_h2", f"{TIME_UNIT}"),
+    ("alpha", f""),
 ]
 parameters
 ```
@@ -1155,7 +1170,8 @@ Next we define a function which, given pint quantities, returns the inputs neede
 
 ```{code-cell} ipython3
 def do_model_runs_input_generator(
-    k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity,
+    k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
+    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, 
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
@@ -1175,10 +1191,12 @@ def do_model_runs_input_generator(
 
     Returns
     -------
-        Inputs for :func:`do_experiments
+        Inputs for :func: do_experiments
     """
-    return {"k1": k1, "k2": k2, "k3": k3, "input_emms" : emissions_ppb, "concentrations" : concentrations,
-    "years" : years, "y0": y0,}
+    return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
+            "alpha": alpha,
+            "input_emms" : emissions_ppb, "concentrations" : concentrations,
+            "years" : years, "y0": y0, }
 ```
 
 ```{code-cell} ipython3
@@ -1198,7 +1216,7 @@ Now we can run from a plain numpy array (like scipy will use) and get a result t
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([5e-15, 5e-15, 2e-13])
+start = np.array([5e-15, 5e-15, 2e-13, 0.7, 73115200,0.2])
 start
 ```
 
@@ -1241,7 +1259,22 @@ bounds_dict = {
         UREG.Quantity(1e-13, "cm^3 / s"),
         UREG.Quantity(1e-12, "cm^3 / s"),
     ],
+    "kx": [
+        UREG.Quantity(0.2, "1/ s"),
+        UREG.Quantity(1.1, "1 / s"),
+    ],
+     "tau_dep_h2": [
+        UREG.Quantity(2, " year"),
+        UREG.Quantity(3, " year"),
+    ],
+    "alpha": [
+        UREG.Quantity(0, ""),
+        UREG.Quantity(0.4, ""),
+    ],
 
+    
+    
+    
 }
 display(bounds_dict)
 
@@ -1262,9 +1295,9 @@ seed = 12849
 ## TODO: other repo with full runs
 # Tolerance to set for convergance
 atol = 0
-tol = 0.0002
+tol = 0.002
 # Maximum number of iterations to use
-maxiter = 256
+maxiter = 32
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
@@ -1297,7 +1330,7 @@ parameters_names = [v[0] for v in parameters]
 parameters_mosaic = list(more_itertools.repeat_each(parameters_names, 1))
 timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
 
-# if len(parameters_mosaic)==len(timeseries_axes_mosaic):
+# if len(parameters_mosaic)!=len(timeseries_axes_mosaic):
 #     while len(parameters_mosaic)<len(timeseries_axes_mosaic):
 #         parameters_mosaic.append(".")
 #     while len(parameters_mosaic)>len(timeseries_axes_mosaic):
@@ -1306,9 +1339,13 @@ timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
 fig, axd = plt.subplot_mosaic(
     mosaic=[
        [cost_name]+timeseries_axes_mosaic,
-        [cost_name]+parameters_mosaic,
+        [cost_name]+timeseries_axes_mosaic,
+        [cost_name]+timeseries_axes_mosaic,
+        [cost_name]+timeseries_axes_mosaic,
+        [cost_name]+parameters_mosaic[0:3],
+        [cost_name]+parameters_mosaic[3:]
     ],
-    figsize=(12, 6),
+    figsize=(12, 12),
 )
 holder = display(fig, display_id=True)
 
@@ -1385,6 +1422,10 @@ truth = {
 ```
 
 ```{code-cell} ipython3
+UNIT_REGISTRY.Quantity(9.37e7,"s").to("year")
+```
+
+```{code-cell} ipython3
 raise SystemExit("Stop right there!")
 ```
 
@@ -1409,9 +1450,9 @@ start_local
 
 ```{code-cell} ipython3
 # Optimisation parameters
-tol = 1e-8
+tol = 1e-4
 # Maximum number of iterations to use
-maxiter = 500
+maxiter = 256
 
 # I think this is how this works
 max_n_runs = len(parameters) + 5 * maxiter
