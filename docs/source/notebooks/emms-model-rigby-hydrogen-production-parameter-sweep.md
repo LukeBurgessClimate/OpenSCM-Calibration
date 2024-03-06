@@ -136,12 +136,113 @@ We're going to calibrate the model's response to historical data experiments:
 # rcmip had limited years
 years = np.arange(1994,2023)
 
+
+def load_gas_csv(paths,gases,header):
+    df =[]
+    for path, gas in zip(paths,gases):
+        daily= pd.read_csv(path, header=header,delim_whitespace=True)
+        daily.mole_fraction.replace({np.nan: None}, inplace=True)
+        daily.loc[daily["flag"]!="B","mole_fraction"]=None
+        daily=daily.interpolate(method='linear')
+        yearly = daily.groupby("YYYY")["mole_fraction"].mean()
+        df.append(yearly)
+    return df
+
+def load_noaa_csv(paths,gases,headers):
+    df =[]
+    for path, gas, header in zip(paths,gases,headers):
+        daily= pd.read_csv(path, header=header,delim_whitespace=True)
+        
+        #Filter data
+        daily.loc[daily["qcflag"]!='...',"value"]=None
+        daily=daily.interpolate(method='linear')
+        yearly = daily.groupby("year")["value"].mean()
+        df.append(yearly)
+    return df
+
+
+gases = ["CH4", "CO"]
+
+noaa_paths_nh =['datasets/ch4_mhd_surface-flask_1_ccgg_event.txt',
+                'datasets/co_mhd_surface-flask_1_ccgg_event.txt',
+               ]
+headers = [154,152]
+
+noaa_nh = load_noaa_csv(noaa_paths_nh,gases,headers)
+
+noaa_paths_sh = ['datasets/ch4_cgo_surface-flask_1_ccgg_event.txt','datasets/co_cgo_surface-flask_1_ccgg_event.txt']
+headers = [162, 160]
+
+noaa_sh = load_noaa_csv(noaa_paths_sh,gases,headers)
+
+noaa_global = [(x+y)/2 for x,y in zip(noaa_nh,noaa_sh)]
+
+# import agage
+agage_path_nh = ['datasets/AGAGE-GCMD_MHD_h2.txt']
+
+agage_path_sh = ['datasets/AGAGE-GCMD_CGO_h2.txt']
+gases = ["H2"]
+
+agage_nh = load_gas_csv(agage_path_nh,gases,header=17)
+agage_sh = load_gas_csv(agage_path_sh,gases,header=16)
+
+agage_global = [(x+y)/2 for x,y in zip(agage_nh,agage_sh)]
+
+combined_concentrations = [noaa_global[0].loc[years],noaa_global[1].loc[years],agage_global[0].loc[years]]
+
+```
+
+```{code-cell} ipython3
+concentrations = scmdata.ScmRun(
+         pd.DataFrame(
+                combined_concentrations,
+                index=pd.MultiIndex.from_arrays(
+                    [
+                        [
+                           "Atmospheric Concentrations|C4",
+                            "Atmospheric Concentrations|CO",
+                            "Atmospheric Concentrations|H2"
+                        ],
+                        [
+                            "ppb",
+                            "ppb",
+                            "ppb"
+                        ],
+                        [
+                           
+                            "World",
+                            "World",
+                            "World",
+                        ],
+                        [
+                            "None",
+                            "None",
+                            "None",
+                        ],
+                        [
+                            "historical",
+                            "historical",
+                            "historical",
+                        
+                        ],
+                    ],
+                    names=["variable", "unit", "region", "model", "scenario"],
+                ),
+                columns=years,
+            )
+)
+# for vdf in concentrations.groupby("variable"):
+#     vdf.lineplot(label="variable")
+#     plt.show()
+concentrations
+```
+
+```{code-cell} ipython3
 fname="datasets/historical_gas_conc.nc"
 concentrations = scmdata.ScmRun.from_nc(fname=fname)
 concentrations["region"]="World"
 concentrations["unit"]="ppb"
 concentrations["model"]="None"
-
 
 def rename_var(v):
     if "Atmospheric Concentrations|" in v:
@@ -156,12 +257,65 @@ concentrations["variable"]=concentrations["variable"].apply(rename_var)
 #     vdf.lineplot()
 #     plt.show()
 concentrations=concentrations.filter(year=years)
+concentrations
+```
+
+```{code-cell} ipython3
+# combined_concentrations
+```
+
+```{code-cell} ipython3
+concentrations = scmdata.ScmRun(
+         pd.DataFrame(
+                combined_concentrations,
+                index=pd.MultiIndex.from_arrays(
+                    [
+                        [
+                           "Atmospheric Concentrations|CH4",
+                            "Atmospheric Concentrations|CO",
+                            "Atmospheric Concentrations|H2"
+                        ],
+                        [
+                            "ppb",
+                            "ppb",
+                            "ppb"
+                        ],
+                        [
+                           
+                            "World",
+                            "World",
+                            "World",
+                        ],
+                        [
+                            "None",
+                            "None",
+                            "None",
+                        ],
+                        [
+                            "historical",
+                            "historical",
+                            "historical",
+                        
+                        ],
+                    ],
+                    names=["variable", "unit", "region", "model", "scenario"],
+                ),
+                columns=years,
+            )
+)
+for vdf in concentrations.groupby("variable"):
+    vdf.lineplot(label="variable")
+    plt.show()
+```
+
+```{code-cell} ipython3
+concentrations
 ```
 
 ## Emissions
 
 ```{code-cell} ipython3
- atmosphere_molar_mass = UNIT_REGISTRY.Quantity(28.97, "g / mol")# UNIT_REGISTRY.Quantity(28.97, "g / mol")  # https://www.cs.mcgill.ca/~rwest/wikispeedia/wpcd/wp/e/Earth%2527s_atmosphere.htm#:~:text=The%20mean%20molar%20mass%20of%20air%20is%2028.97%20g%2Fmol.
+atmosphere_molar_mass = UNIT_REGISTRY.Quantity(28.97, "g / mol")# UNIT_REGISTRY.Quantity(28.97, "g / mol")  # https://www.cs.mcgill.ca/~rwest/wikispeedia/wpcd/wp/e/Earth%2527s_atmosphere.htm#:~:text=The%20mean%20molar%20mass%20of%20air%20is%2028.97%20g%2Fmol.
 atmosphere_mass =UNIT_REGISTRY.Quantity(4.22e18,'kg' )# This value is the tropospheric value. 
 # UNIT_REGISTRY.Quantity(5.18e18, "kg") 
 atmosphere_mole_outer = atmosphere_mass / atmosphere_molar_mass
@@ -245,7 +399,7 @@ patterson_complete.timeseries()
 ```
 
 ```{code-cell} ipython3
-patterson_complete.line_plot()
+# patterson_complete.line_plot()
 ```
 
 ## Import CH4 and CO emissions
@@ -431,12 +585,13 @@ air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
 #Convert units and correct timerange
 rigby= rigby*UNIT_REGISTRY.Quantity(1e9, "ppb")/ air_number
 rigby =rigby.filter(year=years)
+concentrations=concentrations.append(rigby)
+
 rigby.timeseries()
 ```
 
 ```{code-cell} ipython3
-concentrations=concentrations.append(rigby)
-concentrations.timeseries()
+# concentrations.timxeseries()
 ```
 
 ```{code-cell} ipython3
@@ -499,14 +654,6 @@ for vdf in concentrations.groupby("variable"):
     
 # concentrations=concentrations.append(oh_concentrations)
 # concentrations.timeseries()
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
 ```
 
 ```{code-cell} ipython3
@@ -915,7 +1062,7 @@ emissions_ppb
 ```
 
 ```{code-cell} ipython3
-
+concentrations
 ```
 
 ```{code-cell} ipython3
@@ -1006,7 +1153,7 @@ normalisation_values= concentrations.timeseries().mean(axis=1).values
 normalisation_names=[gas for gas in concentrations["variable"]]
 np.ones(years.shape)
 normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np.newaxis, :]
-spinup = 5 #
+spinup = 1 #
 normalisation_series[:,0:spinup]=1e40
 normalisation_series
 normalisation_years=target["time"].values
@@ -1763,6 +1910,26 @@ for _ in range(4):
 
 ```{code-cell} ipython3
 
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+# 
 ```
 
 ```{code-cell} ipython3

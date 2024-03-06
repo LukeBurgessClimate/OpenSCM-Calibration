@@ -38,14 +38,6 @@ UNIT_REGISTRY._add_mass_emissions_joint_version(symbol)
 ```
 
 ```{code-cell} ipython3
-rcmip = scmdata.ScmRun(path, lowercase_cols=True).filter(region="World").filter(variable=["*|CH4","*|CO"])
-```
-
-```{code-cell} ipython3
-rcmip.get_unique_meta('scenario')
-```
-
-```{code-cell} ipython3
 path= "datasets/rcmip-emissions-annual-means-v5-1-0.csv"
 emissions = pd.read_csv(path)
 ```
@@ -61,10 +53,6 @@ emissions_names = ["Emissions|CH4","Emissions|CO"]
 start = "1850"
 end = "2020"
 # historical_emissions=emissions.copy()[emissions["Scenario"]==historical_name]
-```
-
-```{code-cell} ipython3
-rcmip
 ```
 
 ```{code-cell} ipython3
@@ -104,16 +92,16 @@ type(patterson)
 ```
 
 ```{code-cell} ipython3
-patterson_ppb = patterson.filter(variable="Emissions|H2").timeseries().copy()
+# patterson_ppb = patterson.filter(variable="Emissions|H2").timeseries().copy()
 
-patterson_ppb.loc[patterson_ppb.index.get_level_values("variable")
-                 =="Emissions|H2",
-                  :]*UNIT_REGISTRY(2.12, "ppb / (Mt H2)")
+# patterson_ppb.loc[patterson_ppb.index.get_level_values("variable")
+#                  =="Emissions|H2",
+#                   :]*UNIT_REGISTRY(2.12, "ppb / (Mt H2)")
 ```
 
 ```{code-cell} ipython3
 combined=patterson.append(rcmip)
-combined["]
+combined
 ```
 
 ```{code-cell} ipython3
@@ -192,6 +180,10 @@ plot_emissions(patterson,start,end,[1750,2020],[0,40])
 ## Import Agage data
 
 ```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
 noaa_paths = ['datasets/ch4_cgo_surface-flask_1_ccgg_event.txt','datasets/co_cgo_surface-flask_1_ccgg_event.txt','datasets/h2_cgo_surface-flask_1_ccgg_event.txt']
 paths = ['datasets/AGAGE-GCMD_CGO_ch4.txt','datasets/AGAGE-GCMD_CGO_co.txt','datasets/AGAGE-GCMD_CGO_h2.txt']
 
@@ -199,12 +191,13 @@ gases = ["CH4", "CO", "H2"]
 headers = [162, 160,164]
 
 
-def load_gas_csv(paths,gases):
+def load_gas_csv(paths,gases,header):
     df =[]
     for path, gas in zip(paths,gases):
-        daily= pd.read_csv(path, header=16,delim_whitespace=True)
-        daily=daily[daily["flag"]=="B"]
-
+        daily= pd.read_csv(path, header=header,delim_whitespace=True)
+        daily.mole_fraction.replace({np.nan: None}, inplace=True)
+        daily.loc[daily["flag"]!="B","mole_fraction"]=None
+        daily=daily.interpolate(method='linear')
         yearly = daily.groupby("YYYY")["mole_fraction"].mean()
         df.append(yearly)
     return df
@@ -215,11 +208,15 @@ def load_noaa_csv(paths,gases,headers):
         daily= pd.read_csv(path, header=header,delim_whitespace=True)
         
         #Filter data
-        daily=daily[daily["qcflag"]=="..."]
-        
+        daily.loc[daily["qcflag"]!='...',"value"]=None
+        daily=daily.interpolate(method='linear')
         yearly = daily.groupby("year")["value"].mean()
         df.append(yearly)
     return df
+```
+
+```{code-cell} ipython3
+
 ```
 
 ```{code-cell} ipython3
@@ -259,15 +256,149 @@ hydrogen_daily["value"].plot()
 ```
 
 ```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
 yearly = load_gas_csv(paths,gases)
 # plt.plot(co_daily)
 # co_daily[co_daily['flag']=="P"]
-yearly
+# yearly
 ```
 
 ```{code-cell} ipython3
 yearly2 = load_noaa_csv(noaa_paths,gases,headers)
 yearly2
+```
+
+### Global Averages
+
+```{code-cell} ipython3
+# import noaa
+# noaa_paths_nh =['datasets/ch4_mhd_surface-flask_1_ccgg_event.txt','datasets/co_mhd_surface-flask_1_ccgg_event.txt','datasets/h2_mhd_surface-flask_1_ccgg_event.txt']
+# headers = [154,152,156]
+
+def load_gas_csv(paths,gases,header):
+    df =[]
+    for path, gas in zip(paths,gases):
+        daily= pd.read_csv(path, header=header,delim_whitespace=True)
+        daily.mole_fraction.replace({np.nan: None}, inplace=True)
+        daily.loc[daily["flag"]!="B","mole_fraction"]=None
+        daily=daily.interpolate(method='linear')
+        yearly = daily.groupby("YYYY")["mole_fraction"].mean()
+        df.append(yearly)
+    return df
+
+def load_noaa_csv(paths,gases,headers):
+    df =[]
+    for path, gas, header in zip(paths,gases,headers):
+        daily= pd.read_csv(path, header=header,delim_whitespace=True)
+        
+        #Filter data
+        daily.loc[daily["qcflag"]!='...',"value"]=None
+        daily=daily.interpolate(method='linear')
+        yearly = daily.groupby("year")["value"].mean()
+        df.append(yearly)
+    return df
+
+
+gases = ["CH4", "CO"]
+
+noaa_paths_nh =['datasets/ch4_mhd_surface-flask_1_ccgg_event.txt',
+                'datasets/co_mhd_surface-flask_1_ccgg_event.txt',
+               ]
+headers = [154,152]
+
+noaa_nh = load_noaa_csv(noaa_paths_nh,gases,headers)
+
+noaa_paths_sh = ['datasets/ch4_cgo_surface-flask_1_ccgg_event.txt','datasets/co_cgo_surface-flask_1_ccgg_event.txt']
+headers = [162, 160]
+
+noaa_sh = load_noaa_csv(noaa_paths_sh,gases,headers)
+
+noaa_global = [(x+y)/2 for x,y in zip(noaa_nh,noaa_sh)]
+
+# import agage
+agage_path_nh = ['datasets/AGAGE-GCMD_MHD_h2.txt']
+
+agage_path_sh = ['datasets/AGAGE-GCMD_CGO_h2.txt']
+gases = ["H2"]
+
+agage_nh = load_gas_csv(agage_path_nh,gases,header=17)
+agage_sh = load_gas_csv(agage_path_sh,gases,header=16)
+
+agage_global = [(x+y)/2 for x,y in zip(agage_nh,agage_sh)]
+```
+
+```{code-cell} ipython3
+agage_global
+```
+
+```{code-cell} ipython3
+agage_nh
+```
+
+```{code-cell} ipython3
+# load_gas_csv('datasets/AGAGE-GCMD_CGO_h2.txt',["H2"])
+daily=pd.read_csv('datasets/AGAGE-GCMD_MHD_h2.txt',header=17,delim_whitespace=True)
+# daily.loc[daily["mole_fraction"].values,"mole_fraction"]=None
+# daily.loc[bail]
+# plt.plot(daily["mole_fraction"])
+# daily.loc[daily["mole_fraction"].isnull(),"mole_fraction"]=None
+daily.mole_fraction.replace({np.nan: None}, inplace=True)
+
+daily.loc[daily["flag"]!="B","mole_fraction"]=None
+daily
+```
+
+```{code-cell} ipython3
+noaa_sh[0].loc[1991:1994]
+```
+
+```{code-cell} ipython3
+no
+```
+
+```{code-cell} ipython3
+noaa_nh
+```
+
+```{code-cell} ipython3
+inter
+```
+
+```{code-cell} ipython3
+test=pd.read_csv('datasets/h2_mhd_surface-flask_1_ccgg_event.txt',header=156,delim_whitespace=True)
+basic=test.copy()
+basic.loc[basic["qcflag"]!='...',"value"]=None
+inter=basic.copy().interpolate()
+basic["value"].plot(marker='x',linestyle='')
+inter["value"].plot(marker='+',linestyle='')
+# all(basic==inter)
+# basic.groupby(["year"]).count()
+```
+
+```{code-cell} ipython3
+inter.groupby("year")["value"].mean()
+```
+
+```{code-cell} ipython3
+basic.groupby("year")["value"].mean()
+```
+
+```{code-cell} ipython3
+basic.columns
+```
+
+```{code-cell} ipython3
+inter.groupby(["year"]).count()
+```
+
+```{code-cell} ipython3
+noaa_paths = ['datasets/ch4_mhd_surface-flask_1_ccgg_event.txt','datasets/co_mhd_surface-flask_1_ccgg_event.txt','datasets/h2_mhd_surface-flask_1_ccgg_event.txt']
+headers = [154,152,156]
+noaa_nh = load_noaa_csv(noaa_paths,gases,headers)
+noaa_nh
 ```
 
 ```{code-cell} ipython3
@@ -621,6 +752,22 @@ plt.contourf(fh['oh_scaling'])
 fh
 ```
 
+## Import agage global mean
+
+```{code-cell} ipython3
+path = 'https://agage2.eas.gatech.edu/data_archive/global_mean/global_mean_md.txt'
+yearly= pd.read_csv(path, header=14,delim_whitespace=True)
+yearly
+```
+
+```{code-cell} ipython3
+ch4_yearly=yearly[["time","YYYY","CH4"]]
+```
+
 ```{code-cell} ipython3
 
+```
+
+```{code-cell} ipython3
+ch4_year
 ```
