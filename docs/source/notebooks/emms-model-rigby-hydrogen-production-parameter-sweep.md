@@ -543,49 +543,49 @@ emissions_ppb.timeseries()
 ## Add OH concentration
 
 ```{code-cell} ipython3
-def import_rigby(path,start,end):
-    path = 'datasets/pnas.1616426114.sd01.xls'
-    rigby =pd.read_excel(path,header=4)
-    rigby_val=np.array([rigby["Unnamed: 2"].values])
-    rigby_year= np.arange(start,end+1)
-    rigby_oh= scmdata.ScmRun(
-            pd.DataFrame(
-                rigby_val,
-                index=pd.MultiIndex.from_arrays(
-                    [
-                        [ "Atmospheric Concentrations|OH"],
-                        ["1e6/ cm ** 3"],
-                        [
-                            "World",
-                        ],
-                        [
-                            "None",
-                        ],
-                        [
-                            "historical",
-                        ],
-                    ],
-                    names=["variable", "unit", "region", "model", "scenario"],
-                ),
-                columns=rigby_year,
-            )
-        )
-    return rigby_oh
+# def import_rigby(path,start,end):
+#     path = 'datasets/pnas.1616426114.sd01.xls'
+#     rigby =pd.read_excel(path,header=4)
+#     rigby_val=np.array([rigby["Unnamed: 2"].values])
+#     rigby_year= np.arange(start,end+1)
+#     rigby_oh= scmdata.ScmRun(
+#             pd.DataFrame(
+#                 rigby_val,
+#                 index=pd.MultiIndex.from_arrays(
+#                     [
+#                         [ "Atmospheric Concentrations|OH"],
+#                         ["1e6/ cm ** 3"],
+#                         [
+#                             "World",
+#                         ],
+#                         [
+#                             "None",
+#                         ],
+#                         [
+#                             "historical",
+#                         ],
+#                     ],
+#                     names=["variable", "unit", "region", "model", "scenario"],
+#                 ),
+#                 columns=rigby_year,
+#             )
+#         )
+#     return rigby_oh
     
 
-path = 'datasets/pnas.1616426114.sd01.xls'
-rigby = import_rigby(path, start=1980,end=2014)
-air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
-# air_number = UNIT_REGISTRY.Quantity(1.57e19, "1 / cm^3") # https://www.nature.com/articles/s41467-022-35419-7/tables/1
-# latitude factor
-# lat_factor = 0.48
-# rigby= rigby * lat_factor
-#Convert units and correct timerange
-rigby= rigby*UNIT_REGISTRY.Quantity(1e9, "ppb")/ air_number
-rigby =rigby.filter(year=years)
-concentrations=concentrations.append(rigby)
+# path = 'datasets/pnas.1616426114.sd01.xls'
+# rigby = import_rigby(path, start=1980,end=2014)
+# air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
+# # air_number = UNIT_REGISTRY.Quantity(1.57e19, "1 / cm^3") # https://www.nature.com/articles/s41467-022-35419-7/tables/1
+# # latitude factor
+# # lat_factor = 0.48
+# # rigby= rigby * lat_factor
+# #Convert units and correct timerange
+# rigby= rigby*UNIT_REGISTRY.Quantity(1e9, "ppb")/ air_number
+# rigby =rigby.filter(year=years)
+# concentrations=concentrations.append(rigby)
 
-rigby.timeseries()
+# rigby.timeseries()
 ```
 
 ```{code-cell} ipython3
@@ -773,7 +773,7 @@ def get_emms_func(scmrun):
 ```
 
 ```{code-cell} ipython3
-def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,input_emms, concentrations,years, y0
+def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
     Run model experiments
@@ -993,6 +993,8 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,input_emms, co
     # scale hydroxyl
     input_emms = scale_hydroxyl(input_emms,hydroxyl_scale.magnitude)
     
+    # modify first oh value
+    y0["oh"]=y0_oh
     
     
     to_solve = HydrogenBox(
@@ -1060,7 +1062,7 @@ emissions_ppb
 ```
 
 ```{code-cell} ipython3
-concentrations
+concentrations.timeseries()
 ```
 
 ```{code-cell} ipython3
@@ -1088,6 +1090,7 @@ truth = {
     "tau_dep_h2" : UNIT_REGISTRY.Quantity(2.63, "year"),
     "alpha" : UNIT_REGISTRY.Quantity(0.32,"1"),
     "hydroxyl_scale": UNIT_REGISTRY.Quantity(1,""),
+    "y0_oh":UNIT_REGISTRY.Quantity(2.5e-5,"ppb"),
     "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
     "years" : years,
@@ -1152,8 +1155,11 @@ normalisation_values= concentrations.timeseries().mean(axis=1).values
 normalisation_names=[gas for gas in concentrations["variable"]]
 np.ones(years.shape)
 normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np.newaxis, :]
-spinup = 1 #
-normalisation_series[:,0:spinup]=1e40
+
+# No spin up
+# spinup = 1 #
+# normalisation_series[:,0:spinup]=1e40
+
 normalisation_series
 normalisation_years=target["time"].values
 normalisation_scen = scmdata.ScmRun(
@@ -1308,7 +1314,8 @@ parameters = [
     ("kx", f" 1 / {TIME_UNIT}"),
     ("tau_dep_h2", f"{TIME_UNIT}"),
     ("alpha", f""),
-    ("hydroxyl_scale",f'')
+    ("hydroxyl_scale",f''),
+    ('y0_oh',f'{CONC_UNIT}'),
 ]
 parameters
 ```
@@ -1318,7 +1325,7 @@ Next we define a function which, given pint quantities, returns the inputs neede
 ```{code-cell} ipython3
 def do_model_runs_input_generator(
     k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
-    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale
+    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, y0_oh: pint.Quantity,
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
@@ -1341,7 +1348,7 @@ def do_model_runs_input_generator(
         Inputs for :func: do_experiments
     """
     return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
-            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale,
+            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_oh":y0_oh,
             "input_emms" : emissions_ppb, "concentrations" : concentrations,
             "years" : years, "y0": y0, }
 ```
@@ -1363,7 +1370,7 @@ Now we can run from a plain numpy array (like scipy will use) and get a result t
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([5e-15, 5e-15, 2e-13, 0.7, 73115200,0.2,1])
+start = np.array([5e-15, 5e-15, 2e-13, 0.7, 73115200,0.2,1,2.5e-5])
 start
 ```
 
@@ -1422,6 +1429,10 @@ bounds_dict = {
         UNIT_REGISTRY.Quantity(0.9,""),
         UNIT_REGISTRY.Quantity(1.1,"")
     ],
+    "y0_oh":[
+        UNIT_REGISTRY.Quantity(1.5e-5,"ppb"),
+        UNIT_REGISTRY.Quantity(4.5e-5,"ppb")
+    ]
     
 }
 display(bounds_dict)
@@ -1486,12 +1497,11 @@ timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
 
 fig, axd = plt.subplot_mosaic(
     mosaic=[
-       [cost_name]+timeseries_axes_mosaic,
         [cost_name]+timeseries_axes_mosaic,
         [cost_name]+timeseries_axes_mosaic,
         [cost_name]+parameters_mosaic[0:3],
-        [cost_name]+parameters_mosaic[3:-1],
-        [cost_name]+[parameters_mosaic[-1]]+[parameters_mosaic[-1]]+[parameters_mosaic[-1]],
+        [cost_name]+parameters_mosaic[3:-2],
+        [cost_name]+[parameters_mosaic[-2]]+[parameters_mosaic[-1]]+[parameters_mosaic[-1]],
 
 
     ],
