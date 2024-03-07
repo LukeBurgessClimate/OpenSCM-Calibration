@@ -36,7 +36,6 @@ import scipy.integrate
 import scmdata.run
 from emcwrap import DIMEMove
 from multiprocess import Pool, Manager
-from openscm_units import unit_registry as UREG
 from tqdm.notebook import tqdm
 
 from openscm_calibration import emcee_plotting
@@ -775,7 +774,7 @@ def get_emms_func(scmrun):
 ```
 
 ```{code-cell} ipython3
-def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, input_emms, concentrations,years, y0,
+def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
     Run model experiments
@@ -992,8 +991,8 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, input_emms, concentrations,ye
 #         "h2": UNIT_REGISTRY.Quantity(530, "ppb"),
 #         "oh": UNIT_REGISTRY.Quantity(2.48e-05, "ppb"),
 #     } 
-#     # scale hydroxyl
-#     input_emms = scale_hydroxyl(input_emms,hydroxyl_scale)
+    # scale hydroxyl
+    input_emms = scale_hydroxyl(input_emms,hydroxyl_scale.magnitude)
     
     
     
@@ -1089,6 +1088,7 @@ truth = {
     "kx" : UNIT_REGISTRY.Quantity(0.8, "1/ s"),
     "tau_dep_h2" : UNIT_REGISTRY.Quantity(2.63, "year"),
     "alpha" : UNIT_REGISTRY.Quantity(0.32,"1"),
+    "hydroxyl_scale": UNIT_REGISTRY.Quantity(1,""),
     "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
     "years" : years,
@@ -1309,6 +1309,7 @@ parameters = [
     ("kx", f" 1 / {TIME_UNIT}"),
     ("tau_dep_h2", f"{TIME_UNIT}"),
     ("alpha", f""),
+    ("hydroxyl_scale",f'')
 ]
 parameters
 ```
@@ -1318,7 +1319,7 @@ Next we define a function which, given pint quantities, returns the inputs neede
 ```{code-cell} ipython3
 def do_model_runs_input_generator(
     k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
-    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, 
+    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
@@ -1341,7 +1342,7 @@ def do_model_runs_input_generator(
         Inputs for :func: do_experiments
     """
     return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
-            "alpha": alpha,
+            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale,
             "input_emms" : emissions_ppb, "concentrations" : concentrations,
             "years" : years, "y0": y0, }
 ```
@@ -1363,7 +1364,7 @@ Now we can run from a plain numpy array (like scipy will use) and get a result t
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([5e-15, 5e-15, 2e-13, 0.7, 73115200,0.2])
+start = np.array([5e-15, 5e-15, 2e-13, 0.7, 73115200,0.2,1])
 start
 ```
 
@@ -1380,47 +1381,48 @@ truth = {
 ```{code-cell} ipython3
 # bounds_dict = {
 #     "k1": [
-#         UREG.Quantity(1e-17, "cm^3 / s"),
-#         UREG.Quantity(1e-10, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-10, "cm^3 / s"),
 #     ],
 #     "k2": [
-#         UREG.Quantity(1e-17, "cm^3 / s"),
-#         UREG.Quantity(1e-14, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-14, "cm^3 / s"),
 #     ],
 #     "k3": [
-#         UREG.Quantity(1e-17, "cm^3 / s"),
-#         UREG.Quantity(1e-10, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-10, "cm^3 / s"),
 #     ],
 
 # }
 bounds_dict = {
     "k1": [
-        UREG.Quantity(4e-15, "cm^3 / s"),
-        UREG.Quantity(9e-15, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(4e-15, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(9e-15, "cm^3 / s"),
     ],
     "k2": [
-        UREG.Quantity(1e-15, "cm^3 / s"),
-        UREG.Quantity(1e-14, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(1e-15, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(1e-14, "cm^3 / s"),
     ],
     "k3": [
-        UREG.Quantity(1e-13, "cm^3 / s"),
-        UREG.Quantity(1e-12, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(1e-13, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(1e-12, "cm^3 / s"),
     ],
     "kx": [
-        UREG.Quantity(0.2, "1/ s"),
-        UREG.Quantity(1.1, "1 / s"),
+        UNIT_REGISTRY.Quantity(0.2, "1/ s"),
+        UNIT_REGISTRY.Quantity(1.1, "1 / s"),
     ],
      "tau_dep_h2": [
-        UREG.Quantity(2, " year"),
-        UREG.Quantity(3, " year"),
+        UNIT_REGISTRY.Quantity(2, " year"),
+        UNIT_REGISTRY.Quantity(3, " year"),
     ],
     "alpha": [
-        UREG.Quantity(0, ""),
-        UREG.Quantity(0.4, ""),
+        UNIT_REGISTRY.Quantity(0, ""),
+        UNIT_REGISTRY.Quantity(0.4, ""),
     ],
-
-    
-    
+    "hydroxyl_scale": [
+        UNIT_REGISTRY.Quantity(0.9,""),
+        UNIT_REGISTRY.Quantity(1.1,"")
+    ],
     
 }
 display(bounds_dict)
@@ -1488,9 +1490,11 @@ fig, axd = plt.subplot_mosaic(
        [cost_name]+timeseries_axes_mosaic,
         [cost_name]+timeseries_axes_mosaic,
         [cost_name]+timeseries_axes_mosaic,
-        [cost_name]+timeseries_axes_mosaic,
         [cost_name]+parameters_mosaic[0:3],
-        [cost_name]+parameters_mosaic[3:]
+        [cost_name]+parameters_mosaic[3:-1],
+        [cost_name]+[parameters_mosaic[-1]]+[parameters_mosaic[-1]]+[parameters_mosaic[-1]],
+
+
     ],
     figsize=(12, 12),
 )
@@ -1928,10 +1932,6 @@ for _ in range(4):
 
 ```
 
-```{code-cell} ipython3
+```{raw-cell}
 # 
-```
-
-```{code-cell} ipython3
-
 ```
