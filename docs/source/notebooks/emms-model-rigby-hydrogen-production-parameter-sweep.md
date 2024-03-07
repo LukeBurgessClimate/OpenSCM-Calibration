@@ -188,7 +188,6 @@ agage_sh = load_gas_csv(agage_path_sh,gases,header=16)
 agage_global = [(x+y)/2 for x,y in zip(agage_nh,agage_sh)]
 
 combined_concentrations = [noaa_global[0].loc[years],noaa_global[1].loc[years],agage_global[0].loc[years]]
-
 ```
 
 ```{code-cell} ipython3
@@ -198,7 +197,7 @@ concentrations = scmdata.ScmRun(
                 index=pd.MultiIndex.from_arrays(
                     [
                         [
-                           "Atmospheric Concentrations|C4",
+                           "Atmospheric Concentrations|CH4",
                             "Atmospheric Concentrations|CO",
                             "Atmospheric Concentrations|H2"
                         ],
