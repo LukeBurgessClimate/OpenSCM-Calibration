@@ -236,26 +236,26 @@ concentrations
 ```
 
 ```{code-cell} ipython3
-fname="datasets/historical_gas_conc.nc"
-concentrations = scmdata.ScmRun.from_nc(fname=fname)
-concentrations["region"]="World"
-concentrations["unit"]="ppb"
-concentrations["model"]="None"
+# fname="datasets/historical_gas_conc.nc"
+# concentrations = scmdata.ScmRun.from_nc(fname=fname)
+# concentrations["region"]="World"
+# concentrations["unit"]="ppb"
+# concentrations["model"]="None"
 
-def rename_var(v):
-    if "Atmospheric Concentrations|" in v:
-        return v
-    else:
-        return "Atmospheric Concentrations|"+v
+# def rename_var(v):
+#     if "Atmospheric Concentrations|" in v:
+#         return v
+#     else:
+#         return "Atmospheric Concentrations|"+v
     
-concentrations["variable"]=concentrations["variable"].apply(rename_var)
+# concentrations["variable"]=concentrations["variable"].apply(rename_var)
 
 
-# for vdf in concentration_nc.groupby("variable"):
-#     vdf.lineplot()
-#     plt.show()
-concentrations=concentrations.filter(year=years)
-concentrations
+# # for vdf in concentration_nc.groupby("variable"):
+# #     vdf.lineplot()
+# #     plt.show()
+# concentrations=concentrations.filter(year=years)
+# concentrations
 ```
 
 ```{code-cell} ipython3
@@ -263,47 +263,47 @@ concentrations
 ```
 
 ```{code-cell} ipython3
-concentrations = scmdata.ScmRun(
-         pd.DataFrame(
-                combined_concentrations,
-                index=pd.MultiIndex.from_arrays(
-                    [
-                        [
-                           "Atmospheric Concentrations|CH4",
-                            "Atmospheric Concentrations|CO",
-                            "Atmospheric Concentrations|H2"
-                        ],
-                        [
-                            "ppb",
-                            "ppb",
-                            "ppb"
-                        ],
-                        [
+# concentrations = scmdata.ScmRun(
+#          pd.DataFrame(
+#                 combined_concentrations,
+#                 index=pd.MultiIndex.from_arrays(
+#                     [
+#                         [
+#                            "Atmospheric Concentrations|CH4",
+#                             "Atmospheric Concentrations|CO",
+#                             "Atmospheric Concentrations|H2"
+#                         ],
+#                         [
+#                             "ppb",
+#                             "ppb",
+#                             "ppb"
+#                         ],
+#                         [
                            
-                            "World",
-                            "World",
-                            "World",
-                        ],
-                        [
-                            "None",
-                            "None",
-                            "None",
-                        ],
-                        [
-                            "historical",
-                            "historical",
-                            "historical",
+#                             "World",
+#                             "World",
+#                             "World",
+#                         ],
+#                         [
+#                             "None",
+#                             "None",
+#                             "None",
+#                         ],
+#                         [
+#                             "historical",
+#                             "historical",
+#                             "historical",
                         
-                        ],
-                    ],
-                    names=["variable", "unit", "region", "model", "scenario"],
-                ),
-                columns=years,
-            )
-)
-for vdf in concentrations.groupby("variable"):
-    vdf.lineplot(label="variable")
-    plt.show()
+#                         ],
+#                     ],
+#                     names=["variable", "unit", "region", "model", "scenario"],
+#                 ),
+#                 columns=years,
+#             )
+# )
+# for vdf in concentrations.groupby("variable"):
+#     vdf.lineplot(label="variable")
+#     plt.show()
 ```
 
 ```{code-cell} ipython3
