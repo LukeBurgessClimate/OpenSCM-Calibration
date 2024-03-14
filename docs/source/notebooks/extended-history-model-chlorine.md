@@ -778,7 +778,10 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_e
 
         kx: pint.Quantity[float] = field(validator=check_units(f"1 / {TIME_UNIT}"))
         """Rate constant for reaction of hydroxyl radical and everything else [1 / s]"""
-
+        
+        ks: pint.Quantity[float] = field(validator=check_units(f"1 / {TIME_UNIT}"))
+        """Rate constant for reaction of hydroxyl radical and everything else [1 / s]"""
+        
         tau_dep_h2: pint.Quantity[float] = field(validator=check_units(TIME_UNIT))
         """Partial lifetime of hydrogen due to biogenic soil sinks [s]"""
 
@@ -866,6 +869,7 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_e
             tau_dep_mag = self.tau_dep_h2.to(TIME_UNIT).magnitude
             k3_mag = (self.k3 * per_cm3_to_ppb).to(RATE_CONSTANT_UNIT).magnitude
             kx_mag = self.kx.to(f"1 / {TIME_UNIT}").magnitude
+            ks_mag = self.ks.to(f"1 / {TIME_UNIT}").magnitude
             alpha_mag = self.alpha.magnitude
             
             def dconc_dt(t, y):
@@ -873,7 +877,7 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_e
 
                 emms_ch4_mag, emms_h2_mag, emms_co_mag, emms_oh_mag = emms_func(t)
 
-                dch4dt = emms_ch4_mag - k1_mag * concs["oh"] * concs["ch4"]
+                dch4dt = emms_ch4_mag - k1_mag * concs["oh"] * concs["ch4"] - ks_mag * concs["ch4"]
                 dh2dt = (
                     emms_h2_mag
                     - k2_mag * concs["oh"] * concs["h2"]
@@ -902,11 +906,11 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_e
                 concs = {k: y[i] for k, i in _CONC_INDEXES.items()}
 
                 return [
-                    [-k1_mag * concs["oh"], 0, 0, -k1_mag * concs["ch4"]],
-                    [alpha_mag * k1_mag  * concs["oh"],
+                    [-k1_mag * concs["oh"]-ks_mag, 0, 0, -k1_mag * concs["ch4"]],
+                    [alpha_mag * k1_mag * concs["oh"],
                      -k2_mag * concs["oh"] - 1 / tau_dep_mag ,
                      0,
-                     -k2_mag * concs["h2"] + alpha_mag *k1_mag * concs["ch4"]
+                     -k2_mag * concs["h2"] + alpha_mag * k1_mag * concs["ch4"]
                     ],
                     [
                         k1_mag * concs["oh"],
@@ -959,6 +963,7 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_e
     k2=k2,
     k3=k3,
     kx=kx,
+    ks=UNIT_REGISTRY.Quantity(0.02,"1 / year"),
     tau_dep_h2=tau_dep_h2,
     alpha=alpha
     )
