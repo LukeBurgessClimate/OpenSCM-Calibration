@@ -742,7 +742,7 @@ def get_emms_func(scmrun):
 ```
 
 ```{code-cell} ipython3
-def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_emms, concentrations,years, y0
+def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh, input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
     Run model experiments
@@ -966,7 +966,8 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_e
     # scale hydroxyl
     input_emms = scale_hydroxyl(input_emms,hydroxyl_scale.magnitude)
     
-    # modify first oh value
+    # modify first co and oh values
+    y0["co"]=y0_co
     y0["oh"]=y0_oh
     
     
@@ -1068,8 +1069,6 @@ def get_y0(conc):
     return y0
 
 y0=get_y0(concentrations)
-y0["co"]= UNIT_REGISTRY.Quantity(50, "ppb")
-y0
 truth = {
     "k1" : UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s"),
     "k2" : UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s") ,
@@ -1078,6 +1077,7 @@ truth = {
     "tau_dep_h2" : UNIT_REGISTRY.Quantity(2.63, "year"),
     "alpha" : UNIT_REGISTRY.Quantity(0.32,"1"),
     "hydroxyl_scale": UNIT_REGISTRY.Quantity(1,""),
+    "y0_co":UNIT_REGISTRY.Quantity(70,"ppb"),
     "y0_oh":UNIT_REGISTRY.Quantity(2.5e-5,"ppb"),
     "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
@@ -1148,8 +1148,7 @@ normalisation_names=[gas for gas in concentrations["variable"]]
 np.ones(years.shape)
 normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np.newaxis, :]
 
-normalisation_series[0]=normalisation_series[0]/2
-# No spin up
+normalisation_series[0]=normalisation_series[0]
 # spinup = 1 #
 # normalisation_series[:,0:spinup]=1e40
 
@@ -1307,6 +1306,7 @@ parameters = [
     ("tau_dep_h2", f"{TIME_UNIT}"),
     ("alpha", f""),
     ("hydroxyl_scale",f''),
+    ('y0_co',f'{CONC_UNIT}'),
     ('y0_oh',f'{CONC_UNIT}'),
 ]
 parameters
@@ -1317,7 +1317,7 @@ Next we define a function which, given pint quantities, returns the inputs neede
 ```{code-cell} ipython3
 def do_model_runs_input_generator(
     k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
-    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, y0_oh: pint.Quantity,
+    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, y0_co: pint.Quantity, y0_oh: pint.Quantity,
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
@@ -1340,7 +1340,7 @@ def do_model_runs_input_generator(
         Inputs for :func: do_experiments
     """
     return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
-            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_oh":y0_oh,
+            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_co":y0_co, "y0_oh":y0_oh,
             "input_emms" : emissions_ppb, "concentrations" : concentrations,
             "years" : years, "y0": y0, }
 ```
@@ -1362,7 +1362,7 @@ Now we can run from a plain numpy array (like scipy will use) and get a result t
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([5e-15, 5e-15, 2.3e-13, 0.7, 73115200,0.2,1,2.5e-5])
+start = np.array([5e-15, 5e-15, 2.3e-13, 0.7, 73115200,0.2,1,50,2.5e-5])
 start
 ```
 
@@ -1421,10 +1421,14 @@ bounds_dict = {
         UNIT_REGISTRY.Quantity(0.9,""),
         UNIT_REGISTRY.Quantity(1.1,"")
     ],
+     "y0_co":[
+        UNIT_REGISTRY.Quantity(40,"ppb"),
+        UNIT_REGISTRY.Quantity(80,"ppb")
+    ],
     "y0_oh":[
         UNIT_REGISTRY.Quantity(1.5e-5,"ppb"),
         UNIT_REGISTRY.Quantity(4.5e-5,"ppb")
-    ]
+    ],
     
 }
 display(bounds_dict)
@@ -1492,8 +1496,8 @@ fig, axd = plt.subplot_mosaic(
         [cost_name]+[timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
         [cost_name]+[timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
         [cost_name]+parameters_mosaic[0:3],
-        [cost_name]+parameters_mosaic[3:-2],
-        [cost_name]+[parameters_mosaic[-2]]+[parameters_mosaic[-1]]+[parameters_mosaic[-1]],
+        [cost_name]+parameters_mosaic[3:-3],
+        [cost_name]+parameters_mosaic[-3:],
 
 
     ],
