@@ -325,32 +325,119 @@ atmosphere_mole_outer
 ## Import Patterson emissions
 
 ```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+path= 'datasets/baseline_h2_emissions_regions.csv'
+
+emissions= pd.read_csv(path).drop(columns=["sector_short"])
+emissions
+```
+
+```{code-cell} ipython3
+def import_hydrogen_emissions(path):
+    emissions= pd.read_csv(path).drop(columns=["sector_short"])
+    emissions.loc[emissions["region"]=="World"].groupby(["model","region","scenario","type","unit","variable"]
+                                                       ).sum(numeric_only=True)
+    
+    out=scmdata.ScmRun(emissions).drop_meta("type")
+    return out
+
 path_patt = 'datasets/baseline_h2_emissions_regions.csv'
 
-emissions_patt = pd.read_csv(path_patt).drop(columns=[
-    "sector_short"])
-emissions_patt
-emissions_patt = emissions_patt.loc[emissions_patt["region"]=="World"].groupby(["model","region","scenario","type","unit","variable"]).sum()
-
-patterson=scmdata.ScmRun(emissions_patt).drop_meta("type")
-# patterson=scmdata.ScmRun(emissions_patt)
 patterson.timeseries()
+```
+
+### Import future emissions
+
+```{code-cell} ipython3
+def import_future_emissions(path,scenario,assumption):
+    emissions= pd.read_csv(path)
+    emissions.loc[emissions["region"]=="World"].groupby([
+            "assumptions","model","modified","region","scenario","unit","variable"
+            ]
+        ).sum(numeric_only=True)
+    
+    out=scmdata.ScmRun(emissions).filter(scenario=scenario,sector='Total',region='World',assumptions=assumption)
+    return out
+
+path = 'datasets/emissions_total_scenarios.csv'
+scenario = 'SSP2-45'
+assumption='low'
+
+future_hydrogen = import_future_emissions(path,scenario,assumption)
+future_hydrogen.timeseries()
+```
+
+```{code-cell} ipython3
+scmdata.ScmRun(pd.read_csv(path)).get_unique_meta('variable')
 ```
 
 ### Complete Past  Hydrogen emissions
 
 ```{code-cell} ipython3
-def complete_hydrogen(scen,years,value):
-    out= scen.timeseries().copy()    
-    out[years]=value
+current = future_hydrogen.copy().filter(year=range(2016,2023))
+current = current.filter(variable='Emissions|H2',modified=np.nan,source='adjusted').drop_meta(['sector','assumptions','modified','source'])
+current["model"]="Patterson"
+current["scenario"]="historical"
+```
+
+```{code-cell} ipython3
+current
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+pd.DataFrame()
+```
+
+```{code-cell} ipython3
+pd.concat([patterson.timeseries(),current.timeseries()],axis=1)
+```
+
+```{code-cell} ipython3
+new=pd.merge(patterson.timeseries().copy().transpose(),current.timeseries().copy().transpose(),left_index=True, right_index=True, how='outer')
+# patterson.timeseries().copy().values,current.timeseries().copy().values()
+# new.reset_index(drop=True, inplace=True)
+new.transpose()
+```
+
+```{code-cell} ipython3
+years.squeeze()
+```
+
+```{code-cell} ipython3
+patterson['time']
+```
+
+```{code-cell} ipython3
+out=patterson.timeseries().copy()
+out.loc[:,dt.datetime(2017,1,1):dt.datetime(2018,1,1)]=2
+out
+```
+
+```{code-cell} ipython3
+# def complete_hydrogen(scen,years,value):
+#     out= scen.timeseries().copy()    
+#     out[years]=value
+#     return scmdata.ScmRun(out)
+
+
+# dt_years=concentrations.filter(year=range(2016,2023))["time"]
+# h_avg = patterson.filter(year=range(2010,2015)).values.mean()
+# patterson_complete = complete_hydrogen(patterson,dt_years,h_avg)
+# patterson_complete.timeseries()
+
+def append_hydrogen(scen1,scen2):
+    out=pd.concat([scen1.timeseries().copy(),scen2.timeseries().copy()],axis=1)
     return scmdata.ScmRun(out)
 
-
-dt_years=concentrations.filter(year=range(2016,2023))["time"]
-h_avg = patterson.filter(year=range(2010,2015)).values.mean()
-patterson_complete = complete_hydrogen(patterson,dt_years,h_avg)
+patterson_complete = append_hydrogen(patterson,current.filter(year=range(2015,2023),variable='Emissions|H2'))
 patterson_complete.timeseries()
-                                                        
 ```
 
 ```{code-cell} ipython3
@@ -1927,8 +2014,7 @@ for _ in range(4):
 +++
 
 ## Create Future scenarios
-SSP2-245 with no hydrogen, 2xH2 and 4xH2
-
+Use Lewis runs
 
 +++
 
