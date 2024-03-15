@@ -140,7 +140,7 @@ We're going to calibrate the model's response to historical data experiments:
 ### CH4
 
 ```{code-cell} ipython3
-years = np.arange(1940,2023)
+years = np.arange(1910,2023)
 def get_ch4_conc(path,years):
     out = pd.read_csv(path,header=0)
     out = out.loc[out["year"].isin(years),["year","data_mean_global"]]
@@ -458,8 +458,20 @@ emissions_ppb.timeseries()
 ### Add OH emissions
 
 ```{code-cell} ipython3
+# oh_vals = 1440 * np.ones(years.shape)[np.newaxis, :]
+# # append OH emissions
+
+
 oh_vals = 1440 * np.ones(years.shape)[np.newaxis, :]
-# append OH emissions
+# add oh rate
+#          Water,  nox,   o3,  tropical widening, temperature
+oh_rate = (0.44  + 0.25 + 0.13 + 0.12 - 0.02)/100*5
+rate_start = 1980-years[0]
+oh_adjusted= np.arange(rate_start, years[-1]-years[0]+1)-rate_start
+oh_adjusted = np.concatenate([np.zeros(rate_start),oh_adjusted* oh_rate/10])
+oh_vals= oh_vals * (oh_adjusted+1)
+
+
 oh_scen = scmdata.ScmRun(
          pd.DataFrame(
                 oh_vals,
@@ -573,8 +585,8 @@ for vdf in concentrations.groupby("variable"):
 ```
 
 ```{code-cell} ipython3
-# air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
-# air_number
+air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
+air_number
 ```
 
 ```{code-cell} ipython3
@@ -1434,9 +1446,9 @@ seed = 12849
 ## TODO: other repo with full runs
 # Tolerance to set for convergance
 atol = 0
-tol = 0.002
+tol = 0.00002
 # Maximum number of iterations to use
-maxiter = 32
+maxiter = 256
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
@@ -1898,7 +1910,7 @@ for _ in range(4):
 ```
 
 ```{code-cell} ipython3
-
+op
 ```
 
 ```{code-cell} ipython3
