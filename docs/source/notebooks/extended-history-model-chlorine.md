@@ -140,7 +140,7 @@ We're going to calibrate the model's response to historical data experiments:
 ### CH4
 
 ```{code-cell} ipython3
-years = np.arange(1910,2023)
+years = np.arange(1940,2023)
 def get_ch4_conc(path,years):
     out = pd.read_csv(path,header=0)
     out = out.loc[out["year"].isin(years),["year","data_mean_global"]]
