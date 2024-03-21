@@ -465,7 +465,7 @@ emissions_ppb.timeseries()
 oh_vals = 1440 * np.ones(years.shape)[np.newaxis, :]
 # add oh rate
 #          Water,  nox,   o3,  tropical widening, temperature
-oh_rate = (0.44  + 0.25 + 0.13 + 0.12 - 0.02)/100*5
+oh_rate = (0.44  + 0.25 + 0.13 + 0.12 - 0.02)/100
 rate_start = 1980-years[0]
 oh_adjusted= np.arange(rate_start, years[-1]-years[0]+1)-rate_start
 oh_adjusted = np.concatenate([np.zeros(rate_start),oh_adjusted* oh_rate/10])
@@ -585,8 +585,8 @@ for vdf in concentrations.groupby("variable"):
 ```
 
 ```{code-cell} ipython3
-air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
-air_number
+# air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
+# air_number
 ```
 
 ```{code-cell} ipython3
@@ -1148,7 +1148,6 @@ normalisation_names=[gas for gas in concentrations["variable"]]
 np.ones(years.shape)
 normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np.newaxis, :]
 
-normalisation_series[0]=normalisation_series[0]
 # spinup = 1 #
 # normalisation_series[:,0:spinup]=1e40
 
@@ -1450,9 +1449,9 @@ seed = 12849
 ## TODO: other repo with full runs
 # Tolerance to set for convergance
 atol = 0
-tol = 0.00002
+tol = 0.0002
 # Maximum number of iterations to use
-maxiter = 256
+maxiter = 128
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
