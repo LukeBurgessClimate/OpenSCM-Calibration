@@ -411,7 +411,7 @@ def add_natural_emissions(scen, gases, natural):
 ```{code-cell} ipython3
 gases = ["Emissions|CH4","Emissions|CO","Emissions|H2"]
 ### natural emissions
-natural = [220, 381,32.4]
+natural = [0, 381,32.4]
 combined_emissions = add_natural_emissions(emissions,gases,natural)
 ```
 
@@ -448,6 +448,7 @@ for gas,weight in zip(gases,molar_weights):
                                           * UNIT_REGISTRY.Quantity(1e9,"ppb"))
                                          
 emissions_ppb=emissions_ppb.convert_unit("ppb/a")
+
 emissions_ppb.timeseries()
 ```
 
@@ -506,7 +507,9 @@ oh_scen = scmdata.ScmRun(
 )
 
 emissions_ppb = emissions_ppb.append(oh_scen)
-emissions_ppb.timeseries()
+for vdf in emissions_ppb.groupby("variable"):
+    vdf.lineplot(style="variable")
+    plt.show()
 ```
 
 ## Add OH concentration
@@ -742,7 +745,44 @@ def get_emms_func(scmrun):
 ```
 
 ```{code-cell} ipython3
-def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh, input_emms, concentrations,years, y0
+emissions_ppb
+```
+
+```{code-cell} ipython3
+
+atmosphere_mole_outer
+```
+
+```{code-cell} ipython3
+# temp_nat_ch4 = UNIT_REGISTRY.Quantity(-500, "Mt CH4/ year")
+# molar_mass = UNIT_REGISTRY.Quantity(16, "g CH4/ mol")
+# nat_ch4_mol = temp_nat_ch4 / molar_mass
+# nat_ch4_ppb = (nat_ch4_mol/atmosphere_mole_outer*UNIT_REGISTRY.Quantity(1e9,'ppb')).to('ppb / year').magnitude
+
+# new_emissions = emissions_ppb +nat_ch4_ppb
+# new_emissions.timeseries()
+```
+
+```{code-cell} ipython3
+# emissions_ppb.timeseries().loc[emissions_ppb.timeseries().index.get_level_values("variable").isin(["Emissions|CH4"])]+=50
+# emissions_ppb.timeseries()
+```
+
+```{code-cell} ipython3
+def add_nat_ch4(i,nat_ch4):
+    molar_mass = UNIT_REGISTRY.Quantity(16, "g CH4/ mol")
+    out=i.timeseries().copy()
+    nat_ch4_mol = nat_ch4 / molar_mass
+    nat_ch4_ppb = (nat_ch4_mol/atmosphere_mole_outer*UNIT_REGISTRY.Quantity(1e9,'ppb')).to('ppb/year').magnitude
+    out.loc[out.index.get_level_values("variable").isin(["Emissions|CH4"])] += nat_ch4_ppb
+    return scmdata.ScmRun(out)
+
+scen= add_nat_ch4(emissions_ppb,UNIT_REGISTRY.Quantity(-5000,"Mt CH4/ year"))
+scen.timeseries()
+```
+
+```{code-cell} ipython3
+def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,nat_ch4, input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
     Run model experiments
@@ -947,7 +987,16 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh, i
         out=i.timeseries().copy()
         out.loc[out.index.get_level_values("variable").isin(["Emissions|OH"])]*= scale
         return scmdata.ScmRun(out)
-            
+
+    
+    def add_nat_ch4(i,nat_ch4):
+        molar_mass = UNIT_REGISTRY.Quantity(16, "g CH4/ mol")
+        out=i.timeseries().copy()
+        nat_ch4_mol = nat_ch4 / molar_mass
+        nat_ch4_ppb = (nat_ch4_mol/atmosphere_mole_outer*UNIT_REGISTRY.Quantity(1e9,'ppb')).to('ppb/year').magnitude
+        out.loc[out.index.get_level_values("variable").isin(["Emissions|CH4"])] += nat_ch4_ppb
+        return scmdata.ScmRun(out)
+
     years = years
 
 
@@ -966,6 +1015,11 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh, i
     # scale hydroxyl
     input_emms = scale_hydroxyl(input_emms,hydroxyl_scale.magnitude)
     
+    # Add natural methane
+
+    # add exta natural ch4 emissions
+    input_emms = add_nat_ch4(input_emms,nat_ch4)
+
     # modify first co and oh values
     y0["co"]=y0_co
     y0["oh"]=y0_oh
@@ -1079,11 +1133,12 @@ truth = {
     "hydroxyl_scale": UNIT_REGISTRY.Quantity(1,""),
     "y0_co":UNIT_REGISTRY.Quantity(70,"ppb"),
     "y0_oh":UNIT_REGISTRY.Quantity(2.5e-5,"ppb"),
+    "nat_ch4":UNIT_REGISTRY.Quantity(305,"Mt CH4 / a"),
     "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
     "years" : years,
     "y0" : y0,
-   
+
 }
 
 # get correct format of target
@@ -1302,11 +1357,12 @@ parameters = [
     ("k2", f"{LENGTH_UNIT}^3 / {TIME_UNIT}"),
     ("k3", f"{LENGTH_UNIT}^3 / {TIME_UNIT}"),
     ("kx", f" 1 / {TIME_UNIT}"),
-    ("tau_dep_h2", f"{TIME_UNIT}"),
+    ("tau_dep_h2", f"year"),
     ("alpha", f""),
     ("hydroxyl_scale",f''),
     ('y0_co',f'{CONC_UNIT}'),
     ('y0_oh',f'{CONC_UNIT}'),
+    ('nat_ch4',f'Mt CH4 / year'),
 ]
 parameters
 ```
@@ -1316,7 +1372,8 @@ Next we define a function which, given pint quantities, returns the inputs neede
 ```{code-cell} ipython3
 def do_model_runs_input_generator(
     k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
-    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, y0_co: pint.Quantity, y0_oh: pint.Quantity,
+    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, 
+    y0_co: pint.Quantity, y0_oh: pint.Quantity, nat_ch4: pint.Quantity,
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
@@ -1341,7 +1398,7 @@ def do_model_runs_input_generator(
     return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
             "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_co":y0_co, "y0_oh":y0_oh,
             "input_emms" : emissions_ppb, "concentrations" : concentrations,
-            "years" : years, "y0": y0, }
+            "years" : years, "y0": y0, "nat_ch4":nat_ch4,}
 ```
 
 ```{code-cell} ipython3
@@ -1361,7 +1418,7 @@ Now we can run from a plain numpy array (like scipy will use) and get a result t
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([5e-15, 5e-15, 2.3e-13, 0.7, 73115200,0.2,1,50,2.5e-5])
+start = np.array([5e-15, 5e-15, 2.3e-13, 0.7, 2.3,0.2,1,50,2.5e-5,305])
 start
 ```
 
@@ -1405,7 +1462,7 @@ bounds_dict = {
         UNIT_REGISTRY.Quantity(2.4e-13, "cm^3 / s"),
     ],
     "kx": [
-        UNIT_REGISTRY.Quantity(0.2, "1/ s"),
+        UNIT_REGISTRY.Quantity(0.5, "1/ s"),
         UNIT_REGISTRY.Quantity(1.1, "1 / s"),
     ],
      "tau_dep_h2": [
@@ -1425,10 +1482,13 @@ bounds_dict = {
         UNIT_REGISTRY.Quantity(80,"ppb")
     ],
     "y0_oh":[
-        UNIT_REGISTRY.Quantity(1.5e-5,"ppb"),
-        UNIT_REGISTRY.Quantity(4.5e-5,"ppb")
+        UNIT_REGISTRY.Quantity(1.9e-5,"ppb"),
+        UNIT_REGISTRY.Quantity(3e-5,"ppb")
     ],
-    
+    "nat_ch4":[
+        UNIT_REGISTRY.Quantity(0,"Mt CH4 / year"),
+        UNIT_REGISTRY.Quantity(500,"Mt CH4 / year")
+    ],
 }
 display(bounds_dict)
 
@@ -1451,7 +1511,7 @@ seed = 12849
 atol = 0
 tol = 0.0002
 # Maximum number of iterations to use
-maxiter = 128
+maxiter = 36
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
@@ -1495,8 +1555,9 @@ fig, axd = plt.subplot_mosaic(
         [cost_name]+[timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
         [cost_name]+[timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
         [cost_name]+parameters_mosaic[0:3],
-        [cost_name]+parameters_mosaic[3:-3],
-        [cost_name]+parameters_mosaic[-3:],
+        [cost_name]+parameters_mosaic[3:-4],
+        [cost_name]+parameters_mosaic[-4:-1],
+        [cost_name]+[parameters_mosaic[-1]]*3,
 
 
     ],
@@ -1605,9 +1666,9 @@ start_local
 
 ```{code-cell} ipython3
 # Optimisation parameters
-tol = 1e-4
+tol = 1e-3
 # Maximum number of iterations to use
-maxiter = 256
+maxiter = 128
 
 # I think this is how this works
 max_n_runs = len(parameters) + 5 * maxiter
