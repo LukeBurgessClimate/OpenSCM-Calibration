@@ -181,54 +181,21 @@ dt.datetime(2013,1,1)
 ```
 
 ```{code-cell} ipython3
-noaa_global.index.values
+type(noaa_global)
 ```
 
 ```{code-cell} ipython3
 
-co_concentrations= scmdata.ScmRun(
-    pd.DataFrame(
-      np.nan * np.ones(years.shape)[np.newaxis, :],
-        index=pd.MultiIndex.from_arrays(
-            [
-                [ "Atmospheric Concentrations|CO"],
-                ["ppb"],
-                [
-                    "World",
-                ],
-                [
-                    "None",
-                ],
-                [
-                    "historical",
-                ],
-            ],
-            names=["variable", "unit", "region", "model", "scenario"],
-        ),
-        columns=years,
-    )
-)
+```
 
-# def add_co_concentrations(scen,concentrations,years_co):
-def add_co_concentrations(scen,concentrations,start=1992,end=2023):
-    out=scen.copy().timeseries()
-    out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),dt.datetime(start,1,1):dt.datetime(end,1,1)]=noaa_global.values
-    return scmdata.ScmRun(out)
+```{code-cell} ipython3
 
-co_concentrations=add_co_concentrations(co_concentrations,noaa_global,start=1992,end=2023)
-for vdf in co_concentrations.groupby("variable"):
-    vdf.lineplot(style="variable")
-    plt.show()
-    
-
-# concentrations=concentrations.append(oh_concentrations)
-# co_concentrations.timeseries()
 ```
 
 ### CH4
 
 ```{code-cell} ipython3
-years = np.arange(1940,2023)
+years = np.arange(1910,2023)
 def get_ch4_conc(path,years):
     out = pd.read_csv(path,header=0)
     out = out.loc[out["year"].isin(years),["year","data_mean_global"]]
@@ -306,10 +273,67 @@ trend1,years1 = create_trend(1.5,trend2[0],start_year,middle_year)
 h2_values = np.concatenate((trend1,trend2,agage_global[0].loc[end_year:]))
 ```
 
+## CO
+
+```{code-cell} ipython3
+
+co_concentrations= scmdata.ScmRun(
+    pd.DataFrame(
+       np.zeros(years.shape)[np.newaxis, :],
+        index=pd.MultiIndex.from_arrays(
+            [
+                [ "Atmospheric Concentrations|CO"],
+                ["ppb"],
+                [
+                    "World",
+                ],
+                [
+                    "None",
+                ],
+                [
+                    "historical",
+                ],
+            ],
+            names=["variable", "unit", "region", "model", "scenario"],
+        ),
+        columns=years,
+    )
+)
+
+# def add_co_concentrations(scen,concentrations,years_co):
+def add_co_concentrations(scen,concentrations,start=1992,end=2023):
+    out=scen.copy().timeseries()
+    out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),dt.datetime(start,1,1):dt.datetime(end,1,1)]=noaa_global.values
+    return scmdata.ScmRun(out)
+
+# co_concentrations=add_co_concentrations(co_concentrations,noaa_global,start=1992,end=2023)
+for vdf in co_concentrations.groupby("variable"):
+    vdf.lineplot(style="variable")
+    plt.show()
+    
+
+# concentrations=concentrations.append(oh_concentrations)
+# co_concentrations.timeseries()
+```
+
+## add empty co values
+
+```{code-cell} ipython3
+co_conc=np.zeros(years.shape)
+```
+
 ### Combine concentrations
 
 ```{code-cell} ipython3
-combined_concentrations=[ch4_conc["data_mean_global"].values,h2_values]
+h2_values.shape
+```
+
+```{code-cell} ipython3
+co_conc.shape
+```
+
+```{code-cell} ipython3
+combined_concentrations=[ch4_conc["data_mean_global"].values,co_conc,h2_values]
 ```
 
 ```{code-cell} ipython3
@@ -320,22 +344,26 @@ concentrations = scmdata.ScmRun(
                     [
                         [
                            "Atmospheric Concentrations|CH4",
+                            "Atmospheric Concentrations|CO",
                             "Atmospheric Concentrations|H2",
                         ],
                         [
                             "ppb",
-                            "ppb"
+                            "ppb",
+                            "ppb",
                         ],
                         [
-                           
+                            "World",
                             "World",
                             "World",
                         ],
                         [
                             "None",
                             "None",
+                            "None",
                         ],
                         [
+                            "historical",
                             "historical",
                             "historical",
                         
@@ -346,7 +374,8 @@ concentrations = scmdata.ScmRun(
                 columns=years,
             )
 )
-concentrations=concentrations.append(co_concentrations)
+concentrations=add_co_concentrations(concentrations,noaa_global,start=1992,end=2023)
+
 # for vdf in concentrations.groupby("variable"):
 #     vdf.lineplot(hue="variable")
 concentrations.lineplot(hue='variable')
@@ -487,6 +516,13 @@ emissions.timeseries()
 
 ### Add natural emissions
 
++++
+
+#### Natural CO
+https://essd.copernicus.org/articles/11/1411/2019/essd-11-1411-2019.pdf
+
+about 100 TgCO yr-1 once acounting for anthrophenic and oxidation of ch4.
+
 ```{code-cell} ipython3
 def add_natural_emissions(scen, gases, natural):
     return_emissions = scmdata.ScmRun()
@@ -500,7 +536,7 @@ def add_natural_emissions(scen, gases, natural):
 ```{code-cell} ipython3
 gases = ["Emissions|CH4","Emissions|CO","Emissions|H2"]
 ### natural emissions
-natural = [0, 381,32.4]
+natural = [0, 900,32.4]
 combined_emissions = add_natural_emissions(emissions,gases,natural)
 ```
 
@@ -650,12 +686,12 @@ for vdf in emissions_ppb.groupby("variable"):
 ```
 
 ```{code-cell} ipython3
-concentrations.timeseries()
+concentrations.filter(year=range(1990,1994)).timeseries()
 ```
 
 ```{code-cell} ipython3
-for vdf in concentrations.groupby("variable"):
-    vdf.lineplot(style="variable")
+for vdf in concentrations.filter(year=range(1991,1994)).groupby("variable"):
+    vdf.lineplot(style="variable",marker='.')
     plt.show()
 ```
 
@@ -858,16 +894,20 @@ atmosphere_mole_outer
 ```
 
 ```{code-cell} ipython3
-def add_nat_ch4(i,nat_ch4):
-    molar_mass = UNIT_REGISTRY.Quantity(16, "g CH4/ mol")
-    out=i.timeseries().copy()
-    nat_ch4_mol = nat_ch4 / molar_mass
-    nat_ch4_ppb = (nat_ch4_mol/atmosphere_mole_outer*UNIT_REGISTRY.Quantity(1e9,'ppb')).to('ppb/year').magnitude
-    out.loc[out.index.get_level_values("variable").isin(["Emissions|CH4"])] += nat_ch4_ppb
-    return scmdata.ScmRun(out)
+# def add_nat_ch4(i,nat_ch4):
+#     molar_mass = UNIT_REGISTRY.Quantity(16, "g CH4/ mol")
+#     out=i.timeseries().copy()
+#     nat_ch4_mol = nat_ch4 / molar_mass
+#     nat_ch4_ppb = (nat_ch4_mol/atmosphere_mole_outer*UNIT_REGISTRY.Quantity(1e9,'ppb')).to('ppb/year').magnitude
+#     out.loc[out.index.get_level_values("variable").isin(["Emissions|CH4"])] += nat_ch4_ppb
+#     return scmdata.ScmRun(out)
 
-scen= add_nat_ch4(emissions_ppb,UNIT_REGISTRY.Quantity(-5000,"Mt CH4/ year"))
-scen.timeseries()
+# scen= add_nat_ch4(emissions_ppb,UNIT_REGISTRY.Quantity(-5000,"Mt CH4/ year"))
+# scen.timeseries()
+```
+
+```{code-cell} ipython3
+
 ```
 
 ```{code-cell} ipython3
@@ -1159,8 +1199,16 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,na
 #     out["model"] = "example"
 
 #     out = scmdata.run_append(scens_res).filter()
-    # drop OH
+
+    def floor_CO_values(i,year=1991):
+        out=i.copy().timeseries()
+        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),:dt.datetime(year,1,1)] = 0
+        return scmdata.ScmRun(out)
+    
+
     out = scmdata.run_append(scens_res).filter(variable=["*|CH4","*|CO","*|H2"])
+    out= floor_CO_values(out)
+
     return out
 ```
 
@@ -1201,11 +1249,7 @@ concentrations.timeseries()
 ```
 
 ```{code-cell} ipython3
-concentrations
-```
 
-```{code-cell} ipython3
-years_co[0]
 ```
 
 ```{code-cell} ipython3
@@ -1215,7 +1259,7 @@ def get_y0(conc):
     Lettercase of gas not important for solve function
     
     '''
-    gases = ["CH4","H2","OH"]
+    gases = ["CH4","CO","H2","OH"]
     y0 = {gas.lower() : UNIT_REGISTRY.Quantity(conc.filter(variable = '*|'+gas).timeseries().iloc[0,0], 'ppb')for gas in gases}
     return y0
 
@@ -1249,7 +1293,7 @@ target["model"] = "target"
 # fix target timeseries.
 def set_past_co_nan(scen,years):
     out=scen.copy().timeseries()
-    out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),:dt.datetime(years[0],1,1)]=np.nan
+    out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),:dt.datetime(years[0],1,1)]=0
     return scmdata.ScmRun(out)
 
 target=set_past_co_nan(target,years_co)
@@ -1303,11 +1347,7 @@ The next thing is to decide how we're going to calculate the cost function. Ther
 ## normalisation with spinup time
 
 ```{code-cell} ipython3
-np.array(1)/np.array(np.nan)
-```
-
-```{code-cell} ipython3
-np.nansum(concentrations.values)
+concentrations
 ```
 
 ```{code-cell} ipython3
@@ -1315,12 +1355,22 @@ np.nansum(concentrations.values)
 ```
 
 ```{code-cell} ipython3
-normalisation_values= concentrations.timeseries().mean(axis=1).values
+normalisation_values= concentrations.filter(year=years_co).timeseries().mean(axis=1).values
+# normalisation_values[2]*=len(years_co)/len(years)/100
+# normalisation_values[1]*=2
+
+# normalisation_values[0]=1e40
+
+# normalisation_values[2]=1e40
+
 normalisation_names=[gas for gas in concentrations["variable"]]
-np.ones(years.shape)
 normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np.newaxis, :]
 
-# spinup = 1 #
+
+### ensure non co values are out.
+normalisation_series[1][:years_co[0]-years[0]+2]=1e100
+
+# spinup = 3 #
 # normalisation_series[:,0:spinup]=1e40
 
 normalisation_series
@@ -1349,7 +1399,7 @@ normalisation_scen = scmdata.ScmRun(
 
 ```{code-cell} ipython3
 # normalisation_scen=set_past_co_nan(normalisation_scen,years_co)
-normalisation_scen.timeseries()
+normalisation_scen.filter(year=range(1990,1993)).timeseries()
 ```
 
 ```{code-cell} ipython3
@@ -1361,213 +1411,213 @@ normalisation_scen=normalisation_scen.filter(variable=["*|CH4","*|CO","*|H2"])
 ```
 
 ```{code-cell} ipython3
-from __future__ import annotations
+# from __future__ import annotations
 
-from typing import TYPE_CHECKING
+# from typing import TYPE_CHECKING
 
-import numpy as np
-from attrs import define, field
+# import numpy as np
+# from attrs import define, field
 
-if TYPE_CHECKING:
-    import attr
-    import pandas as pd
-    import scmdata.run
-
-
-def _works_with_self_target(
-    instance: OptCostCalculatorSSE,
-    attribute: attr.Attribute[scmdata.run.BaseScmRun],
-    value: scmdata.run.BaseScmRun,
-) -> None:
-    def _get_msg() -> str:
-        target_ts = instance.target.timeseries()
-        value_ts = value.timeseries()
-
-        msg = (
-            "target and normalisation are somehow misaligned "
-            "(passing self.target to self.calculate_cost results "
-            "in nan), please check.\n"
-            f"target timeseries:\n{target_ts}\n"
-            f"{attribute.name} timeseries:\n{value_ts}"
-        )
-
-        return msg
-
-    try:
-        instance.calculate_cost(instance.target)
-    except KeyError as exc:
-        raise ValueError(_get_msg()) from exc
+# if TYPE_CHECKING:
+#     import attr
+#     import pandas as pd
+#     import scmdata.run
 
 
-def _is_meta_in_target(
-    instance: OptCostCalculatorSSE,
-    attribute: attr.Attribute[str],
-    value: str,
-) -> None:
-    available_metadata = instance.target.meta_attributes
-    if value not in available_metadata:
-        msg = (
-            f"value of ``{attribute.name}``, '{value}' is not in the metadata "
-            f"of target. Available metadata: {available_metadata}"
-        )
+# def _works_with_self_target(
+#     instance: OptCostCalculatorSSE,
+#     attribute: attr.Attribute[scmdata.run.BaseScmRun],
+#     value: scmdata.run.BaseScmRun,
+# ) -> None:
+#     def _get_msg() -> str:
+#         target_ts = instance.target.timeseries()
+#         value_ts = value.timeseries()
 
-        raise KeyError(msg)
+#         msg = (
+#             "target and normalisation are somehow misaligned "
+#             "(passing self.target to self.calculate_cost results "
+#             "in nan), please check.\n"
+#             f"target timeseries:\n{target_ts}\n"
+#             f"{attribute.name} timeseries:\n{value_ts}"
+#         )
 
+#         return msg
 
-
-
-@define
-class MyCostCalculatorSSE:  # pylint: disable=too-few-public-methods
-    """
-    Cost calculator based on sum of squared errors
-
-    This is a convenience class. We may want to refactor it in future to
-    provide greater flexibility for other cost calculations.
-    """
-
-    target: scmdata.run.BaseScmRun
-    """Target timeseries"""
-
-    model_col: str = field(validator=[_is_meta_in_target])
-    """
-    Column which contains the name of the model.
-
-    This is used when subtracting the model results from the target
-    """
-
-    normalisation: scmdata.run.BaseScmRun = field(validator=[_works_with_self_target])
-    """
-    Normalisation values
-
-    Should have same timeseries as target. See the class methods for helpers.
-    """
-
-    @classmethod
-    def from_unit_normalisation(
-        cls, target: scmdata.run.BaseScmRun, model_col: str
-    ) -> OptCostCalculatorSSE:
-        """
-        Initialise assuming unit normalisation for each timeseries.
-
-        This is a convenience method, but is not recommended for any serious
-        work as unit normalisation is unlikely to be a good choice for most
-        problems.
-
-        Parameters
-        ----------
-        target
-            Target timeseries
-
-        model_col
-            Column which contains of the model in ``target``
-
-        Returns
-        -------
-            :obj:`OptCostCalculatorSSE` such that the normalisation is 1 for
-            all timepoints (with the units defined by whatever the units of
-            each timeseries are in ``target``)
-        """
-        norm = target.timeseries()
-        norm.loc[:, :] = 1
-        norm = type(target)(norm)
-
-        return cls(target=target, normalisation=norm, model_col=model_col)
+#     try:
+#         instance.calculate_cost(instance.target)
+#     except KeyError as exc:
+#         raise ValueError(_get_msg()) from exc
 
 
-    @classmethod
-    def from_series_normalisation(
-        cls,
-        target: scmdata.run.BaseScmRun,
-        model_col: str,
-        normalisation_series: pd.Series,
-    ) -> OptCostCalculatorSSE:
-        """
-        Initialise starting from a series that defines normalisation for each timeseries.
+# def _is_meta_in_target(
+#     instance: OptCostCalculatorSSE,
+#     attribute: attr.Attribute[str],
+#     value: str,
+# ) -> None:
+#     available_metadata = instance.target.meta_attributes
+#     if value not in available_metadata:
+#         msg = (
+#             f"value of ``{attribute.name}``, '{value}' is not in the metadata "
+#             f"of target. Available metadata: {available_metadata}"
+#         )
 
-        The series is broadcast to match the timeseries in target, using the
-        same value for all timepoints in each timeseries.
-
-        Parameters
-        ----------
-        target
-            Target timeseries
-
-        model_col
-            Column which contains of the model in ``target``
-
-        normalisation_series
-            Series to broadcast to create the desired normalisation
-
-        Returns
-        -------
-            Initialised :obj:`OptCostCalculatorSSE`
-        """
-        required_columns = {"variable", "unit"}
-        missing_cols = required_columns - set(normalisation_series.index.names)
-        if missing_cols:
-            msg = (
-                "normalisation is missing required column(s): "
-                f"``{sorted(missing_cols)}``"
-            )
-            raise KeyError(msg)
-
-        target_ts_no_unit = target.timeseries().reset_index("unit", drop=True)
-
-        # This is basically what pandas does internally when doing ops:
-        # align and then broadcast
-        norm_series_aligned, _ = normalisation_series.align(target_ts_no_unit)
-
-        if norm_series_aligned.isnull().any().any():
-            msg = (
-                "Even after aligning, there are still nan values.\n"
-                f"norm_series_aligned:\n{norm_series_aligned}\n"
-                f"target_ts_no_unit:\n{target_ts_no_unit}"
-            )
-            raise ValueError(msg)
-
-        if norm_series_aligned.shape[0] != target_ts_no_unit.shape[0]:
-            msg = (
-                "After aligning, there are more rows in the normalisation "
-                "than in the target.\n"
-                f"norm_series_aligned:\n{norm_series_aligned}\n"
-                f"target_ts_no_unit:\n{target_ts_no_unit}"
-            )
-            raise ValueError(msg)
-
-        norm_series_aligned = type(target_ts_no_unit)(
-            np.broadcast_to(norm_series_aligned.values, target_ts_no_unit.T.shape).T,
-            index=norm_series_aligned.index,
-            columns=target_ts_no_unit.columns,
-        )
-
-        normalisation = type(target)(norm_series_aligned)
-
-        return cls(target=target, normalisation=normalisation, model_col=model_col)
+#         raise KeyError(msg)
 
 
-    def calculate_cost(self, model_results: scmdata.run.BaseScmRun) -> float:
-        """
-        Calculate cost function based on model results
 
-        Parameters
-        ----------
-        model_results
-            Model results of which to calculate the cost
 
-        Returns
-        -------
-            Cost
-        """
-        diff = model_results.subtract(
-            self.target, op_cols={self.model_col: "res - target"}
-        ).divide(
-            self.normalisation,
-            op_cols={self.model_col: "(res - target) / normalisation"},
-        )
+# @define
+# class MyCostCalculatorSSE:  # pylint: disable=too-few-public-methods
+#     """
+#     Cost calculator based on sum of squared errors
 
-        cost = float(np.nansum(np.nansum((diff.convert_unit("1") ** 2).values)))
+#     This is a convenience class. We may want to refactor it in future to
+#     provide greater flexibility for other cost calculations.
+#     """
 
-        return cost
+#     target: scmdata.run.BaseScmRun
+#     """Target timeseries"""
+
+#     model_col: str = field(validator=[_is_meta_in_target])
+#     """
+#     Column which contains the name of the model.
+
+#     This is used when subtracting the model results from the target
+#     """
+
+#     normalisation: scmdata.run.BaseScmRun = field(validator=[_works_with_self_target])
+#     """
+#     Normalisation values
+
+#     Should have same timeseries as target. See the class methods for helpers.
+#     """
+
+#     @classmethod
+#     def from_unit_normalisation(
+#         cls, target: scmdata.run.BaseScmRun, model_col: str
+#     ) -> OptCostCalculatorSSE:
+#         """
+#         Initialise assuming unit normalisation for each timeseries.
+
+#         This is a convenience method, but is not recommended for any serious
+#         work as unit normalisation is unlikely to be a good choice for most
+#         problems.
+
+#         Parameters
+#         ----------
+#         target
+#             Target timeseries
+
+#         model_col
+#             Column which contains of the model in ``target``
+
+#         Returns
+#         -------
+#             :obj:`OptCostCalculatorSSE` such that the normalisation is 1 for
+#             all timepoints (with the units defined by whatever the units of
+#             each timeseries are in ``target``)
+#         """
+#         norm = target.timeseries()
+#         norm.loc[:, :] = 1
+#         norm = type(target)(norm)
+
+#         return cls(target=target, normalisation=norm, model_col=model_col)
+
+
+#     @classmethod
+#     def from_series_normalisation(
+#         cls,
+#         target: scmdata.run.BaseScmRun,
+#         model_col: str,
+#         normalisation_series: pd.Series,
+#     ) -> OptCostCalculatorSSE:
+#         """
+#         Initialise starting from a series that defines normalisation for each timeseries.
+
+#         The series is broadcast to match the timeseries in target, using the
+#         same value for all timepoints in each timeseries.
+
+#         Parameters
+#         ----------
+#         target
+#             Target timeseries
+
+#         model_col
+#             Column which contains of the model in ``target``
+
+#         normalisation_series
+#             Series to broadcast to create the desired normalisation
+
+#         Returns
+#         -------
+#             Initialised :obj:`OptCostCalculatorSSE`
+#         """
+#         required_columns = {"variable", "unit"}
+#         missing_cols = required_columns - set(normalisation_series.index.names)
+#         if missing_cols:
+#             msg = (
+#                 "normalisation is missing required column(s): "
+#                 f"``{sorted(missing_cols)}``"
+#             )
+#             raise KeyError(msg)
+
+#         target_ts_no_unit = target.timeseries().reset_index("unit", drop=True)
+
+#         # This is basically what pandas does internally when doing ops:
+#         # align and then broadcast
+#         norm_series_aligned, _ = normalisation_series.align(target_ts_no_unit)
+
+#         if norm_series_aligned.isnull().any().any():
+#             msg = (
+#                 "Even after aligning, there are still nan values.\n"
+#                 f"norm_series_aligned:\n{norm_series_aligned}\n"
+#                 f"target_ts_no_unit:\n{target_ts_no_unit}"
+#             )
+#             raise ValueError(msg)
+
+#         if norm_series_aligned.shape[0] != target_ts_no_unit.shape[0]:
+#             msg = (
+#                 "After aligning, there are more rows in the normalisation "
+#                 "than in the target.\n"
+#                 f"norm_series_aligned:\n{norm_series_aligned}\n"
+#                 f"target_ts_no_unit:\n{target_ts_no_unit}"
+#             )
+#             raise ValueError(msg)
+
+#         norm_series_aligned = type(target_ts_no_unit)(
+#             np.broadcast_to(norm_series_aligned.values, target_ts_no_unit.T.shape).T,
+#             index=norm_series_aligned.index,
+#             columns=target_ts_no_unit.columns,
+#         )
+
+#         normalisation = type(target)(norm_series_aligned)
+
+#         return cls(target=target, normalisation=normalisation, model_col=model_col)
+
+
+#     def calculate_cost(self, model_results: scmdata.run.BaseScmRun) -> float:
+#         """
+#         Calculate cost function based on model results
+
+#         Parameters
+#         ----------
+#         model_results
+#             Model results of which to calculate the cost
+
+#         Returns
+#         -------
+#             Cost
+#         """
+#         diff = model_results.subtract(
+#             self.target, op_cols={self.model_col: "res - target"}
+#         ).divide(
+#             self.normalisation,
+#             op_cols={self.model_col: "(res - target) / normalisation"},
+#         )
+
+#         cost = float(np.nansum(np.nansum((diff.convert_unit("1") ** 2).values)))
+
+#         return cost
 ```
 
 ```{code-cell} ipython3
@@ -1583,7 +1633,7 @@ class MyCostCalculatorSSE:  # pylint: disable=too-few-public-methods
 ```
 
 ```{code-cell} ipython3
-cost_calculator = MyCostCalculatorSSE(
+cost_calculator = OptCostCalculatorSSE(
     target=target,  model_col="model",normalisation=normalisation_scen,
 )
 ```
@@ -1763,7 +1813,7 @@ cost_calculator.calculate_cost(model_runner.run_model([5e-15, 5e-15, 2.3e-13, 0.
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([5e-15, 5e-15, 2.3e-13, 0.7, 2.3,0.2,1,50,2.5e-5,305])
+start = np.array([5e-15, 5e-15, 2e-13, 0.7, 2.3,0.2,1,50,2.2e-5,305])
 start
 ```
 
@@ -1795,7 +1845,7 @@ truth = {
 # }
 bounds_dict = {
     "k1": [
-        UNIT_REGISTRY.Quantity(4e-15, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(2e-15, "cm^3 / s"),
         UNIT_REGISTRY.Quantity(9e-15, "cm^3 / s"),
     ],
     "k2": [
@@ -1803,12 +1853,12 @@ bounds_dict = {
         UNIT_REGISTRY.Quantity(1e-14, "cm^3 / s"),
     ],
     "k3": [
-        UNIT_REGISTRY.Quantity(2.2e-13, "cm^3 / s"),
-        UNIT_REGISTRY.Quantity(2.4e-13, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(2.0e-13, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(2.5e-13, "cm^3 / s"),
     ],
     "kx": [
-        UNIT_REGISTRY.Quantity(0.5, "1/ s"),
-        UNIT_REGISTRY.Quantity(1.1, "1 / s"),
+        UNIT_REGISTRY.Quantity(0.3, "1/ s"),
+        UNIT_REGISTRY.Quantity(0.8, "1 / s"),
     ],
      "tau_dep_h2": [
         UNIT_REGISTRY.Quantity(2, " year"),
@@ -1824,14 +1874,14 @@ bounds_dict = {
     ],
      "y0_co":[
         UNIT_REGISTRY.Quantity(40,"ppb"),
-        UNIT_REGISTRY.Quantity(80,"ppb")
+        UNIT_REGISTRY.Quantity(70,"ppb")
     ],
     "y0_oh":[
         UNIT_REGISTRY.Quantity(1.9e-5,"ppb"),
-        UNIT_REGISTRY.Quantity(3e-5,"ppb")
+        UNIT_REGISTRY.Quantity(2.5e-5,"ppb")
     ],
     "nat_ch4":[
-        UNIT_REGISTRY.Quantity(0,"Mt CH4 / year"),
+        UNIT_REGISTRY.Quantity(200,"Mt CH4 / year"),
         UNIT_REGISTRY.Quantity(500,"Mt CH4 / year")
     ],
 }
@@ -1842,6 +1892,10 @@ bounds
 ```
 
 Now we're ready to run our optimisation.
+
+```{code-cell} ipython3
+
+```
 
 ```{code-cell} ipython3
 # Number of parallel processes to use
@@ -1856,7 +1910,7 @@ seed = 12849
 atol = 0
 tol = 0.0002
 # Maximum number of iterations to use
-maxiter = 36
+maxiter = 64
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
@@ -1873,9 +1927,9 @@ popsize = 4
 max_n_runs = (maxiter + 1) * popsize * len(parameters)
 
 
-# Visualisation options
+# Visualisation optionsa
 update_every = 4
-thin_ts_to_plot = 3
+thin_ts_to_plot = 1
 
 
 # Create axes to plot on (could also be created as part of a factory
@@ -1971,23 +2025,6 @@ with Manager() as manager:
 
 plt.close()
 optimize_res
-```
-
-```
-truth = {
-    "k1" : UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s"),
-    "k2" : UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s") ,
-    "k3" : UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s"),
-    "kx" :UNIT_REGISTRY.Quantity(1.062, "1 / s"),
-}
-```
-
-```{code-cell} ipython3
-UNIT_REGISTRY.Quantity(9.37e7,"s").to("year")
-```
-
-```{code-cell} ipython3
-raise SystemExit("Stop right there!")
 ```
 
 ## Local optimisation
@@ -2316,32 +2353,4 @@ with Pool(processes=processes) as pool:
 # Close all the figures
 for _ in range(4):
     plt.close()
-```
-
-```{code-cell} ipython3
-op
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
-```
-
-```{raw-cell}
-# 
 ```
