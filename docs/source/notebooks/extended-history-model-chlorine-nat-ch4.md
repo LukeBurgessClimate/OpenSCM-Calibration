@@ -1206,7 +1206,9 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,na
         return scmdata.ScmRun(out)
     
 
-    out = scmdata.run_append(scens_res).filter(variable=["*|CH4","*|CO","*|H2"])
+#     out = scmdata.run_append(scens_res).filter(variable=["*|CH4","*|CO","*|H2"])
+    out = scmdata.run_append(scens_res).filter(variable=["*|CH4","*|CO"])
+
     out= floor_CO_values(out)
 
     return out
@@ -1370,7 +1372,7 @@ normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np
 
 
 ### ensure non co values are out.
-normalisation_series[1][:years_co[0]-years[0]+2]=1e100
+normalisation_series[1][:years_co[0]-years[0]+1]=1e100
 
 # spinup = 3 #
 # normalisation_series[:,0:spinup]=1e40
@@ -2149,4 +2151,275 @@ with Pool(processes=processes) as pool:
 # Close all the figures
 for _ in range(4):
     plt.close()
+```
+
+## Hydrogen run
+
+```{code-cell} ipython3
+normalisation_values= concentrations.filter(year=years_co).timeseries().mean(axis=1).values
+
+# normalisation_values[2]=1e1000
+
+normalisation_names=[gas for gas in concentrations["variable"]]
+normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np.newaxis, :]
+
+
+### ensure non co values are out.
+normalisation_series[1][:years_co[0]-years[0]+1]=1e100
+
+# spinup = 3 #
+# normalisation_series[:,0:spinup]=1e40
+
+normalisation_series
+normalisation_years=target["time"].values
+normalisation_scen = scmdata.ScmRun(
+         pd.DataFrame(
+                normalisation_series,
+                index=pd.MultiIndex.from_arrays(
+                    [
+                        ["Atmospheric Concentrations|CH4",
+                        "Atmospheric Concentrations|CO",
+                        "Atmospheric Concentrations|H2",
+                        "Atmospheric Concentrations|OH",
+                        ],
+                        ["ppb","ppb","ppb","ppb"],
+                        ["World","World","World","World",],
+                        ["target","target","target","target",],
+                        ["historical","historical","historical","historical",],
+                    ],
+                    names=["variable", "unit", "region", "model", "scenario"],
+                    ),
+                    columns=normalisation_years
+         )
+)
+
+# Remove Hydrogen 
+# bad fix for now need seperate model with filter h2
+target= target.filter(variable=["*|CH4","*|CO",])
+normalisation_scen=normalisation_scen.filter(variable=["*|CH4","*|CO",])
+   
+    
+cost_calculator = OptCostCalculatorSSE(
+    target=target,  model_col="model",normalisation=normalisation_scen,
+)
+
+assert cost_calculator.calculate_cost(target) == 0
+assert cost_calculator.calculate_cost(target * 1.1) > 0
+```
+
+```{code-cell} ipython3
+model_runner = OptModelRunner.from_parameters(
+    params=parameters,
+    do_model_runs_input_generator=do_model_runs_input_generator,
+    do_model_runs=do_experiments,
+)
+
+
+
+start = np.array([5e-15, 0, 2e-13, 0.7, 2.3,0,1,50,2.2e-5,305])
+start
+
+# bounds_dict = {
+#     "k1": [
+#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-10, "cm^3 / s"),
+#     ],
+#     "k2": [
+#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-14, "cm^3 / s"),
+#     ],
+#     "k3": [
+#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(1e-10, "cm^3 / s"),
+#     ],
+
+# }
+bounds_dict = {
+    "k1": [
+        UNIT_REGISTRY.Quantity(2e-15, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(9e-15, "cm^3 / s"),
+    ],
+    "k2": [
+        UNIT_REGISTRY.Quantity(0, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(0, "cm^3 / s"),
+    ],
+    "k3": [
+        UNIT_REGISTRY.Quantity(2.0e-13, "cm^3 / s"),
+        UNIT_REGISTRY.Quantity(2.5e-13, "cm^3 / s"),
+    ],
+    "kx": [
+        UNIT_REGISTRY.Quantity(0.3, "1/ s"),
+        UNIT_REGISTRY.Quantity(0.8, "1 / s"),
+    ],
+     "tau_dep_h2": [
+        UNIT_REGISTRY.Quantity(2.3, " year"),
+        UNIT_REGISTRY.Quantity(2.3, " year"),
+    ],
+    "alpha": [
+        UNIT_REGISTRY.Quantity(0, ""),
+        UNIT_REGISTRY.Quantity(0, ""),
+    ],
+    "hydroxyl_scale": [
+        UNIT_REGISTRY.Quantity(0.9,""),
+        UNIT_REGISTRY.Quantity(1.1,"")
+    ],
+     "y0_co":[
+        UNIT_REGISTRY.Quantity(40,"ppb"),
+        UNIT_REGISTRY.Quantity(70,"ppb")
+    ],
+    "y0_oh":[
+        UNIT_REGISTRY.Quantity(1.9e-5,"ppb"),
+        UNIT_REGISTRY.Quantity(2.5e-5,"ppb")
+    ],
+    "nat_ch4":[
+        UNIT_REGISTRY.Quantity(200,"Mt CH4 / year"),
+        UNIT_REGISTRY.Quantity(500,"Mt CH4 / year")
+    ],
+}
+display(bounds_dict)
+
+bounds = [[v.to(unit).m for v in bounds_dict[k]] for k, unit in parameters]
+bounds
+```
+
+```{code-cell} ipython3
+# Number of parallel processes to use
+processes = 4
+
+# Random seed (use if you want reproducibility)
+seed = 12849
+
+## Optimisation parameters - here we use short runs
+## TODO: other repo with full runs
+# Tolerance to set for convergance
+atol = 0
+tol = 0.0002
+# Maximum number of iterations to use
+maxiter = 16
+# Lower mutation means faster convergence but smaller
+# search radius
+mutation = (0.1, 0.8)
+# Higher recombination means faster convergence but
+# might miss global minimum
+recombination = 0.8
+# Size of population to use (higher number means more searching
+# but slower convergence)
+popsize = 4
+# There are also the strategy and init options
+# which might be needed for some problems
+
+# Maximum number of runs to store
+max_n_runs = (maxiter + 1) * popsize * len(parameters)
+
+
+# Visualisation optionsa
+update_every = 4
+thin_ts_to_plot = 1
+
+
+# Create axes to plot on (could also be created as part of a factory
+# or class method)
+convert_scmrun_to_plot_dict = partial(scmrun_as_dict, groups=["variable", "scenario"])
+
+cost_name = "cost"
+timeseries_axes = list(convert_scmrun_to_plot_dict(target).keys())
+
+parameters_names = [v[0] for v in parameters]
+parameters_mosaic = list(more_itertools.repeat_each(parameters_names, 1))
+timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
+
+# if len(parameters_mosaic)!=len(timeseries_axes_mosaic):
+#     while len(parameters_mosaic)<len(timeseries_axes_mosaic):
+#         parameters_mosaic.append(".")
+#     while len(parameters_mosaic)>len(timeseries_axes_mosaic):
+#         timeseries_axes_mosaic.append(".")
+
+fig, axd = plt.subplot_mosaic(
+    mosaic=[
+        [cost_name]+[timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
+#         [timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
+        [cost_name]+parameters_mosaic[0:3],
+        [cost_name]+parameters_mosaic[3:-4],
+        [cost_name]+parameters_mosaic[-4:-1],
+        [cost_name]+[parameters_mosaic[-1]]*3,
+
+
+    ],
+    figsize=(12, 12),
+)
+holder = display(fig, display_id=True)
+
+with Manager() as manager:
+    store = OptResStore.from_n_runs_manager(
+        max_n_runs,
+        manager,
+        params=parameters_names,
+    )
+
+
+    # Create objects and functions to use
+    to_minimize = partial(
+        to_minimize_full,
+        store=store,
+        cost_calculator=cost_calculator,
+        model_runner=model_runner,
+        known_error=ValueError,
+    )
+
+    with manager.Pool(processes=processes) as pool:
+        with tqdm(total=max_n_runs) as pbar:
+            opt_plotter = OptPlotter(
+                holder=holder,
+                fig=fig,
+                axes=axd,
+                cost_key=cost_name,
+                parameters=parameters_names,
+                timeseries_axes=timeseries_axes,
+                convert_scmrun_to_plot_dict=convert_scmrun_to_plot_dict,
+                target=target,
+                store=store,
+                thin_ts_to_plot=thin_ts_to_plot,
+            )
+
+            proxy = CallbackProxy(
+                real_callback=opt_plotter,
+                store=store,
+                update_every=update_every,
+                progress_bar=pbar,
+                last_callback_val=0,
+            )
+
+            # This could be wrapped up too
+            optimize_res = scipy.optimize.differential_evolution(
+                to_minimize,
+                bounds,
+                maxiter=maxiter,
+                x0=start,
+                tol=tol,
+                atol=atol,
+                seed=seed,
+                # Polish as a second step if you want
+                polish=False,
+                workers=pool.map,
+                updating="deferred",  # as we run in parallel, this has to be used
+                mutation=mutation,
+                recombination=recombination,
+                popsize=popsize,
+                callback=proxy.callback_differential_evolution,
+            )
+
+plt.close()
+optimize_res
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+
 ```
