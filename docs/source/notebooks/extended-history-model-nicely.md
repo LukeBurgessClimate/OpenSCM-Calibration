@@ -341,7 +341,7 @@ def import_hydrogen_emissions(path):
     emissions.loc[emissions["region"]=="World"].groupby(["model","region","scenario","type","unit","variable"]
                                                        ).sum(numeric_only=True)
     
-    out=scmdata.ScmRun(emissions).drop_meta("type")
+    out=scmdata.ScmRun(emissions)
     return out
 
 path_patt = 'datasets/baseline_h2_emissions_regions.csv'
@@ -352,21 +352,23 @@ patterson.timeseries()
 ### Import future emissions
 
 ```{code-cell} ipython3
-def import_future_emissions(path,scenario,assumption):
+def import_future_emissions(path,scenario,assumption,source):
     emissions= pd.read_csv(path)
     emissions.loc[emissions["region"]=="World"].groupby([
             "assumptions","model","modified","region","scenario","unit","variable"
             ]
         ).sum(numeric_only=True)
-    
-    out=scmdata.ScmRun(emissions).filter(scenario=scenario,sector='Total',region='World',assumptions=assumption)
+#     emissions = emissions.drop_meta(['sector','assumptions','modified','source'])
+    out=scmdata.ScmRun(emissions).filter(scenario=scenario,sector='Total',region='World',assumptions=assumption,source=source)
+    out=out.filter(variable = ["*|CH4","*|H2"]).drop_meta(['sector','assumptions','modified','source'])
     return out
 
 path = 'datasets/emissions_total_scenarios.csv'
 scenario = 'SSP2-45'
 assumption='low'
+source='adjusted'
 
-future_hydrogen = import_future_emissions(path,scenario,assumption)
+future_hydrogen = import_future_emissions(path,scenario,assumption,source)
 future_hydrogen.timeseries()
 ```
 
@@ -377,47 +379,14 @@ scmdata.ScmRun(pd.read_csv(path)).get_unique_meta('variable')
 ### Complete Past  Hydrogen emissions
 
 ```{code-cell} ipython3
-current = future_hydrogen.copy().filter(year=range(2016,2023))
-current = current.filter(variable='Emissions|H2',modified=np.nan,source='adjusted').drop_meta(['sector','assumptions','modified','source'])
+
+```
+
+```{code-cell} ipython3
+current = future_hydrogen.copy().filter(year=range(2016,2101))
+current = current.filter(variable='Emissions|H2')
 current["model"]="Patterson"
 current["scenario"]="historical"
-```
-
-```{code-cell} ipython3
-current
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-pd.DataFrame()
-```
-
-```{code-cell} ipython3
-pd.concat([patterson.timeseries(),current.timeseries()],axis=1)
-```
-
-```{code-cell} ipython3
-new=pd.merge(patterson.timeseries().copy().transpose(),current.timeseries().copy().transpose(),left_index=True, right_index=True, how='outer')
-# patterson.timeseries().copy().values,current.timeseries().copy().values()
-# new.reset_index(drop=True, inplace=True)
-new.transpose()
-```
-
-```{code-cell} ipython3
-years.squeeze()
-```
-
-```{code-cell} ipython3
-patterson['time']
-```
-
-```{code-cell} ipython3
-out=patterson.timeseries().copy()
-out.loc[:,dt.datetime(2017,1,1):dt.datetime(2018,1,1)]=2
-out
 ```
 
 ```{code-cell} ipython3
@@ -436,7 +405,7 @@ def append_hydrogen(scen1,scen2):
     out=pd.concat([scen1.timeseries().copy(),scen2.timeseries().copy()],axis=1)
     return scmdata.ScmRun(out)
 
-patterson_complete = append_hydrogen(patterson,current.filter(year=range(2015,2023),variable='Emissions|H2'))
+patterson_complete = append_hydrogen(patterson,current)
 patterson_complete.timeseries()
 ```
 
@@ -454,9 +423,13 @@ rcmip = scmdata.ScmRun(path, lowercase_cols=True).filter(region="World").filter(
 ```
 
 ```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
 ssp_245=rcmip.filter(scenario="ssp245")
 # years=np.arange(1994,2022)
-smooth_245 = ssp_245.interpolate(years)
+smooth_245 = ssp_245.interpolate(future_years)
 ```
 
 ```{code-cell} ipython3
@@ -479,7 +452,7 @@ emissions["model"]="None"
 emissions["scenario"]="historical"
 
 
-emissions = emissions.filter(year=years)
+emissions = emissions.filter(year=future_years)
 emissions.timeseries()
 ```
 
@@ -550,14 +523,22 @@ emissions_ppb=emissions_ppb.convert_unit("ppb/a")
 https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2018JD028388
 
 ```{code-cell} ipython3
-oh_vals = 1440 * np.ones(years.shape)[np.newaxis, :]
+def add_OH_trend(scen, rate,start=2000, stop=2017):
+    trend = rate* np.arange(1,2+stop-start)
+    out=scen.copy().timeseries()
+    out.loc[out.index.get_level_values("variable").isin(["Emissions|OH"]),dt.datetime(start,1,1):dt.datetime(stop,1,1)]+=trend
+    out.loc[out.index.get_level_values("variable").isin(["Emissions|OH"]),dt.datetime(stop+1,1,1):]+=trend[-1]
+
+    return scmdata.ScmRun(out)
+```
+
+```{code-cell} ipython3
+oh_vals = 1440 * np.ones(future_years.shape)[np.newaxis, :]
 # add oh rate
 #          Water,  nox,   o3,  tropical widening, temperature
 oh_rate = (0.44  + 0.25 + 0.13 + 0.12 - 0.02)/100*2
-rate_start = 1980-years[0]
-oh_adjusted= np.arange(rate_start, years[-1]-years[0]+1)-rate_start
-oh_adjusted = np.concatenate([np.zeros(rate_start),oh_adjusted* oh_rate/10])
-oh_vals= oh_vals * (oh_adjusted+1)
+rate_start = 1980
+rate_end = 2015
 
 
 # append OH emissions
@@ -590,16 +571,19 @@ oh_scen = scmdata.ScmRun(
                     ],
                     names=["variable", "unit", "region", "model", "scenario"],
                 ),
-                columns=years,
+                columns=future_years,
             )
 )
 
+oh_scen = add_OH_trend(oh_scen,rate=oh_rate,start=rate_start,stop=rate_end)
+
 emissions_ppb = emissions_ppb.append(oh_scen)
-emissions_ppb.filter(year=range(1975,1985)).timeseries()
+full_emissions= emissions_ppb.copy()
+
+emissions_ppb=emissions_ppb.filter(year=years)
 ```
 
 ```{code-cell} ipython3
-
 
 ```
 
@@ -833,6 +817,14 @@ def get_emms_func(scmrun):
         return emms[:, np.argmax(t <= times)]
 
     return emms_func
+```
+
+```{code-cell} ipython3
+def do_experiments_output(**inputs):
+    out = do_experiments(**inputs)
+    return out.filter(variable=["*|CH4","*|H2"])
+    
+    
 ```
 
 ```{code-cell} ipython3
@@ -1106,7 +1098,7 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co, y0_oh, 
 
 #     out = scmdata.run_append(scens_res).filter()
     # drop OH
-    out = scmdata.run_append(scens_res).filter(variable=["*|CH4","*|H2"])
+    out = scmdata.run_append(scens_res)
     return out
 ```
 
@@ -1179,7 +1171,7 @@ truth = {
 }
 
 # get correct format of target
-target = do_experiments(**truth,)
+target = do_experiments_output(**truth)
 target["model"] = "target"
 
 
@@ -1408,6 +1400,38 @@ parameters
 Next we define a function which, given pint quantities, returns the inputs needed for our `do_experiments` function. In this case this is not a very interesting function, but in other use cases the flexibility is helpful.
 
 ```{code-cell} ipython3
+def do_projections_input_generator(
+    k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
+    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity,
+    y0_co: pint.Quantity, y0_oh: pint.Quantity,
+) -> Dict[str, pint.Quantity]:
+    """
+    Create the inputs for :func:`do_experiments`
+
+    Parameters
+    ----------
+    k1
+        k1
+
+    k2
+        k2
+
+    k3
+        k3
+        
+  
+
+    Returns
+    -------
+        Inputs for :func: do_experiments
+    """
+    return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
+            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale,"y0_co":y0_co, "y0_oh":y0_oh,
+            "input_emms" : full_emissions, "concentrations" : concentrations,
+            "years" : years, "y0": y0, }
+```
+
+```{code-cell} ipython3
 def do_model_runs_input_generator(
     k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
     tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity,
@@ -1443,7 +1467,7 @@ def do_model_runs_input_generator(
 model_runner = OptModelRunner.from_parameters(
     params=parameters,
     do_model_runs_input_generator=do_model_runs_input_generator,
-    do_model_runs=do_experiments,
+    do_model_runs=do_experiments_output,
 )
 ```
 
@@ -1546,7 +1570,7 @@ seed = 12849
 atol = 0
 tol = 0.002
 # Maximum number of iterations to use
-maxiter = 32
+maxiter = 16
 # Lower mutation means faster convergence but smaller
 # search radius
 mutation = (0.1, 0.8)
@@ -2011,7 +2035,9 @@ for _ in range(4):
 
 ## Create graphs.
 
-+++
+```{code-cell} ipython3
+start_local
+```
 
 ## Create Future scenarios
 Use Lewis runs
@@ -2021,11 +2047,23 @@ Use Lewis runs
 ## Calibrate model to optimize res local
 
 ```{code-cell} ipython3
-optimize_res_local
+optimize_res
 ```
 
 ```{code-cell} ipython3
+projection_runner = OptModelRunner.from_parameters(
+    params=parameters,
+    do_model_runs_input_generator=do_projections_input_generator,
+    do_model_runs=do_experiments_output,
+)
+```
 
+```{code-cell} ipython3
+optimize_res.x
+```
+
+```{code-cell} ipython3
+projection_runner.run_model(optimize_res.x).lineplot(style='variable')
 ```
 
 ```{code-cell} ipython3
