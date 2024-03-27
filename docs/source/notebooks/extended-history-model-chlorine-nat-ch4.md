@@ -485,6 +485,10 @@ rcmip = scmdata.ScmRun(path, lowercase_cols=True).filter(region="World").filter(
 ```
 
 ```{code-cell} ipython3
+rcmip.timeseries()
+```
+
+```{code-cell} ipython3
 ssp_245=rcmip.filter(scenario="ssp245")
 # years=np.arange(1994,2022)
 smooth_245 = ssp_245.interpolate(years)
