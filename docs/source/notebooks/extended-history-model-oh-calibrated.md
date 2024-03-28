@@ -12,6 +12,10 @@ kernelspec:
 ---
 
 ```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
 # %matplotlib inline
 ```
 
@@ -176,26 +180,12 @@ noaa_global=noaa_global.loc[years_co]
 noaa_global
 ```
 
-```{code-cell} ipython3
-dt.datetime(2013,1,1)
-```
-
-```{code-cell} ipython3
-type(noaa_global)
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
-```
-
 ### CH4
 
 ```{code-cell} ipython3
-years = np.arange(1910,2023)
+years = np.arange(1850,2023)
+projection_years = np.arange(1910,2100)
+
 def get_ch4_conc(path,years):
     out = pd.read_csv(path,header=0)
     out = out.loc[out["year"].isin(years),["year","data_mean_global"]]
@@ -213,10 +203,6 @@ ch4_conc
 ```
 
 ### Hydrogen
-
-```{code-cell} ipython3
-
-```
 
 ```{code-cell} ipython3
 def load_gas_csv(paths,gases,header):
@@ -276,56 +262,50 @@ h2_values = np.concatenate((trend1,trend2,agage_global[0].loc[end_year:]))
 ## CO
 
 ```{code-cell} ipython3
-co_concentrations= scmdata.ScmRun(
-    pd.DataFrame(
-       np.zeros(years.shape)[np.newaxis, :],
-        index=pd.MultiIndex.from_arrays(
-            [
-                [ "Atmospheric Concentrations|CO"],
-                ["ppb"],
-                [
-                    "World",
-                ],
-                [
-                    "None",
-                ],
-                [
-                    "historical",
-                ],
-            ],
-            names=["variable", "unit", "region", "model", "scenario"],
-        ),
-        columns=years,
-    )
-)
+# co_concentrations= scmdata.ScmRun(
+#     pd.DataFrame(
+#        np.zeros(years.shape)[np.newaxis, :],
+#         index=pd.MultiIndex.from_arrays(
+#             [
+#                 [ "Atmospheric Concentrations|CO"],
+#                 ["ppb"],
+#                 [
+#                     "World",
+#                 ],
+#                 [
+#                     "None",
+#                 ],
+#                 [
+#                     "historical",
+#                 ],
+#             ],
+#             names=["variable", "unit", "region", "model", "scenario"],
+#         ),
+#         columns=years,
+#     )
+# )
 
-# def add_co_concentrations(scen,concentrations,years_co):
+# # def add_co_concentrations(scen,concentrations,years_co):
 def add_co_concentrations(scen,concentrations,start=1992,end=2023):
     out=scen.copy().timeseries()
     out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),dt.datetime(start,1,1):dt.datetime(end,1,1)]=noaa_global.values
     return scmdata.ScmRun(out)
 
 # co_concentrations=add_co_concentrations(co_concentrations,noaa_global,start=1992,end=2023)
-for vdf in co_concentrations.groupby("variable"):
-    vdf.lineplot(style="variable")
-    plt.show()
+# for vdf in co_concentrations.groupby("variable"):
+#     vdf.lineplot(style="variable")
+#     plt.show()
     
 
-# concentrations=concentrations.append(oh_concentrations)
-# co_concentrations.timeseries()
+# # concentrations=concentrations.append(oh_concentrations)
+# # co_concentrations.timeseries()
 ```
-
-## add empty co values
 
 ```{code-cell} ipython3
 co_conc=np.zeros(years.shape)
 ```
 
 ### Combine concentrations
-
-```{code-cell} ipython3
-h2_values.shape
-```
 
 ```{code-cell} ipython3
 co_conc.shape
@@ -377,7 +357,8 @@ concentrations=add_co_concentrations(concentrations,noaa_global,start=1992,end=2
 
 # for vdf in concentrations.groupby("variable"):
 #     vdf.lineplot(hue="variable")
-concentrations.filter(year=range(1990,1993)).lineplot(hue='variable')
+# concentrations.filter(year=range(1990,1993)).lineplot(hue='variable')
+concentrations.lineplot(hue='variable')
 ```
 
 ```{code-cell} ipython3
@@ -407,67 +388,93 @@ atmosphere_mole_outer
 ```
 
 ```{code-cell} ipython3
-# def convert_emissions(i,gases, weights, atmosphere_mole_outer):
-#     """
-#     i: scmdata.ScmRun
-#     gases: list
-#     weights: list
-    
-#     Return scmdata with emissions in ppb / yr
-    
-#     """
-    
 
-#     temp = i.timeseries().copy()
-#     for gas,weight in zip(gases,weights):
-#         temp.filter(variable=gas)= weight / atmosphere_mole_outer * 1e9 * 1e6*temp.filter(variable=gas).values()
-#         temp.filter(variable=gas).unit = "ppb / yr"
-    
-#     return scmdata.ScmRun(temp)
-
-    
-# def mt_to_ppb_yr(
-#     emms,
-#     molar_mass,
-#     atmosphere_mole=atmosphere_mole_outer,
-# ):
-#     emms_mole = emms / molar_mass
-#     emms_mole
-
-#     emms_ppb = (emms_mole / atmosphere_mole) *1e9
-
-#     return emms_ppb
 ```
 
 ## Import Patterson emissions
 
 ```{code-cell} ipython3
+def import_hydrogen_emissions(path):
+    emissions= pd.read_csv(path).drop(columns=["sector_short"])
+    emissions = emissions.loc[emissions["region"]=="World"].groupby(["model","region","scenario","type","unit","variable"]
+                                                       ).sum(numeric_only=True)
+    
+    out=scmdata.ScmRun(emissions)
+    return out.drop_meta('type')
+
 path_patt = 'datasets/baseline_h2_emissions_regions.csv'
+patterson=import_hydrogen_emissions(path_patt)
 
-emissions_patt = pd.read_csv(path_patt).drop(columns=[
-    "sector_short"])
-emissions_patt
-emissions_patt = emissions_patt.loc[emissions_patt["region"]=="World"].groupby(["model","region","scenario","type","unit","variable"]).sum()
-
-patterson=scmdata.ScmRun(emissions_patt).drop_meta("type")
-# patterson=scmdata.ScmRun(emissions_patt)
 patterson.timeseries()
+```
+
+```{code-cell} ipython3
+# def explore_future_emissions(path,scenario,assumption,source):
+#     emissions= pd.read_csv(path)
+#     emissions.loc[emissions["region"]=="World"].groupby([
+#             "assumptions","model","modified","region","scenario","unit","variable"
+#             ]
+#         ).sum(numeric_only=True)
+# #     emissions = emissions.drop_meta(['sector','assumptions','modified','source'])
+#     out=scmdata.ScmRun(emissions).filter(scenario=scenario,sector='Total',region='World')
+#     out=out.filter(variable = ["*|CH4","*|H2"]).drop_meta(['sector'])
+#     return out
+
+# path = 'datasets/emissions_total_scenarios.csv'
+# scenario = 'SSP2-45'
+# assumption='high'
+# source='adjusted'
+
+# future_hydrogen = explore_future_emissions(path,scenario,assumption,source)
+# future_hydrogen.timeseries()
+
+# for vdf in future_hydrogen.groupby('variable'):
+#     vdf.lineplot(hue='source',style='assumptions')
+#     plt.show()
+```
+
+```{code-cell} ipython3
+
+```
+
+## Import Future emissions
+
+```{code-cell} ipython3
+def import_future_emissions(path,scenario,assumption,source):
+    emissions= pd.read_csv(path)
+    emissions.loc[emissions["region"]=="World"].groupby([
+            "assumptions","model","modified","region","scenario","unit","variable"
+            ]
+        ).sum(numeric_only=True)
+#     emissions = emissions.drop_meta(['sector','assumptions','modified','source'])
+    out=scmdata.ScmRun(emissions).filter(scenario=scenario,sector='Total',region='World',assumptions=assumption,source=source)
+    out=out.filter(variable = ["*|CH4","*|H2"]).drop_meta(['sector','assumptions','modified','source'])
+    return out
+
+path = 'datasets/emissions_total_scenarios.csv'
+scenario = 'SSP2-45'
+
+assumption='high'
+source='adjusted'
+
+future_hydrogen = import_future_emissions(path,scenario,assumption,source)
+future_hydrogen.timeseries()
 ```
 
 ### Complete Past  Hydrogen emissions
 
 ```{code-cell} ipython3
-def complete_hydrogen(scen,years,value):
-    out= scen.timeseries().copy()    
-    out[years]=value
+current = future_hydrogen.copy().filter(year=range(2016,2101))
+current = current.filter(variable='Emissions|H2')
+current["model"]="Patterson"
+current["scenario"]="historical"
+
+def append_hydrogen(scen1,scen2):
+    out=pd.concat([scen1.timeseries().copy(),scen2.timeseries().copy()],axis=1)
     return scmdata.ScmRun(out)
 
-
-dt_years=concentrations.filter(year=range(2016,2023))["time"]
-h_avg = patterson.filter(year=range(2010,2015)).values.mean()
-patterson_complete = complete_hydrogen(patterson,dt_years,h_avg)
+patterson_complete = append_hydrogen(patterson,current)
 patterson_complete.timeseries()
-                                                        
 ```
 
 ```{code-cell} ipython3
@@ -481,10 +488,6 @@ path= "datasets/rcmip-emissions-annual-means-v5-1-0.csv"
 # path= "datasets/SSP_CMIP6_201811.csv"
 
 rcmip = scmdata.ScmRun(path, lowercase_cols=True).filter(region="World").filter(variable=["*|CH4","*|CO"])
-```
-
-```{code-cell} ipython3
-rcmip.timeseries()
 ```
 
 ```{code-cell} ipython3
@@ -543,12 +546,28 @@ natural = [0, 900,32.4]
 combined_emissions = add_natural_emissions(emissions,gases,natural)
 ```
 
-```{code-cell} ipython3
-combined_emissions.timeseries()
-```
+### add CO emissions trend
+https://essd.copernicus.org/articles/11/1411/2019/essd-11-1411-2019.pdf
+
+Estimated trend between 2000 and 2017 was -3.6 from NMVOC reductions and -0.05 from oceans all other trends are uncertain
+
+The percentages give similar values, as percentage of each source not the total.
+
+
+
+From table 2, it is -2.5,
 
 ```{code-cell} ipython3
-combined_emissions.timeseries()
+def add_CO_trend(scen, rate,start=2000, stop=2017):
+    trend = rate* np.arange(1,2+stop-start)
+    out=scen.copy().timeseries()
+    out.loc[out.index.get_level_values("variable").isin(["Emissions|CO"]),dt.datetime(start,1,1):dt.datetime(stop,1,1)]+=trend
+    out.loc[out.index.get_level_values("variable").isin(["Emissions|CO"]),dt.datetime(stop+1,1,1):]+=trend[-1]
+
+    return scmdata.ScmRun(out)
+
+combined_emissions=add_CO_trend(combined_emissions,rate = -7.4)
+combined_emissions.filter(year=range(1999,2022)).timeseries()
 ```
 
 ### Convert Emissions
@@ -580,27 +599,28 @@ emissions_ppb=emissions_ppb.convert_unit("ppb/a")
 emissions_ppb.timeseries()
 ```
 
-```{code-cell} ipython3
-emissions_ppb.timeseries()
-```
-
 ### Add OH emissions
+#### OH emissions have grown by about 1% per decade.
+https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2018JD028388
 
 ```{code-cell} ipython3
-# oh_vals = 1440 * np.ones(years.shape)[np.newaxis, :]
-# # append OH emissions
+def add_OH_trend(scen, rate,start=2000, stop=2017):
+    trend = rate* np.arange(1,2+stop-start)
+    out=scen.copy().timeseries()
+    out.loc[out.index.get_level_values("variable").isin(["Emissions|OH"]),dt.datetime(start,1,1):dt.datetime(stop,1,1)]+=trend
+    out.loc[out.index.get_level_values("variable").isin(["Emissions|OH"]),dt.datetime(stop+1,1,1):]+=trend[-1]
 
+    return scmdata.ScmRun(out)
 
 oh_vals = 1440 * np.ones(years.shape)[np.newaxis, :]
 # add oh rate
 #          Water,  nox,   o3,  tropical widening, temperature
 oh_rate = (0.44  + 0.25 + 0.13 + 0.12 - 0.02)/100
-rate_start = 1980-years[0]
-oh_adjusted= np.arange(rate_start, years[-1]-years[0]+1)-rate_start
-oh_adjusted = np.concatenate([np.zeros(rate_start),oh_adjusted* oh_rate/10])
-oh_vals= oh_vals * (oh_adjusted+1)
+rate_start = 1980
+rate_end = 2015
 
 
+# append OH emissions
 oh_scen = scmdata.ScmRun(
          pd.DataFrame(
                 oh_vals,
@@ -634,9 +654,21 @@ oh_scen = scmdata.ScmRun(
             )
 )
 
+oh_scen = add_OH_trend(oh_scen,rate=oh_rate,start=rate_start,stop=rate_end)
+
 emissions_ppb = emissions_ppb.append(oh_scen)
-for vdf in emissions_ppb.groupby("variable"):
-    vdf.lineplot(style="variable")
+full_emissions= emissions_ppb.copy()
+
+emissions_ppb=emissions_ppb.filter(year=years)
+```
+
+```{code-cell} ipython3
+emissions_ppb.timeseries()
+```
+
+```{code-cell} ipython3
+for vdf in emissions_ppb.groupby('variable'):
+    vdf.line_plot()
     plt.show()
 ```
 
@@ -674,6 +706,7 @@ def import_rigby(path,start,end):
     
 
 path = 'datasets/pnas.1616426114.sd01.xls'
+years_oh= np.arange(1980,2015)
 rigby = import_rigby(path, start=1980,end=2014)
 air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
 # air_number = UNIT_REGISTRY.Quantity(1.57e19, "1 / cm^3") # https://www.nature.com/articles/s41467-022-35419-7/tables/1
@@ -733,105 +766,6 @@ concentrations=concentrations.append(oh_concentrations)
 for vdf in concentrations.groupby("variable"):
     vdf.lineplot(style="variable")
     plt.show()
-```
-
-```{code-cell} ipython3
-# # for vdf in concentrations.filter(year=range(1991,1994)).groupby("variable"):
-# for vdf in concentrations.filter(year=range(1991,1994)).groupby("variable"):
-
-#     vdf.lineplot(style="variable",marker='.')
-#     plt.show()
-```
-
-```{code-cell} ipython3
-# new= new*UNIT_REGISTRY.Quantity(1e9, "ppb")/ air_number
-```
-
-```{code-cell} ipython3
-# tropospheric_mass = UNIT_REGISTRY.Quantity(4.22e18,'kg').to('g')
-# atmosphere_molar_mass = UNIT_REGISTRY.Quantity(28.97, "g / mol")  # https://www.cs.mcgill.ca/~rwest/wikispeedia/wpcd/wp/e/Earth%2527s_atmosphere.htm#:~:text=The%20mean%20molar%20mass%20of%20air%20is%2028.97%20g%2Fmol.
-# tropospheric_mole=tropospheric_mass/atmosphere_molar_mass
-# tropospheric_mole
-```
-
-```{code-cell} ipython3
-# atmospheric_density = UNIT_REGISTRY.Quantity(0.0012, "g/cm**3")
-# tropospheric_volume = UNIT_REGISTRY.Quantity(6e9,"km**3")
-# tropospheric_volume.to("cm **3")
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-# oh_years = years.copy()
-
-# oh_concentrations= scmdata.ScmRun(
-#     pd.DataFrame(
-#         2.9e-5 * np.ones(years.shape)[np.newaxis, :],
-#         index=pd.MultiIndex.from_arrays(
-#             [
-#                 [ "Atmospheric Concentrations|OH"],
-#                 ["ppb"],
-#                 [
-#                     "World",
-#                 ],
-#                 [
-#                     "None",
-#                 ],
-#                 [
-#                     "historical",
-#                 ],
-#             ],
-#             names=["variable", "unit", "region", "model", "scenario"],
-#         ),
-#         columns=years,
-#     )
-# )
-
-
-
-# for vdf in oh_concentrations.groupby("variable"):
-#     vdf.lineplot(style="variable")
-#     plt.show()
-    
-# concentrations=concentrations.append(oh_concentrations)
-# concentrations.timeseries()
-```
-
-```{code-cell} ipython3
-# oh_years = years.copy()
-
-# oh_concentrations= scmdata.ScmRun(
-#     pd.DataFrame(
-#         2e-5 * np.ones(years.shape)[np.newaxis, :],
-#         index=pd.MultiIndex.from_arrays(
-#             [
-#                 [ "Atmospheric Concentrations|OH"],
-#                 ["ppb"],
-#                 [
-#                     "World",
-#                 ],
-#                 [
-#                     "None",
-#                 ],
-#                 [
-#                     "historical",
-#                 ],
-#             ],
-#             names=["variable", "unit", "region", "model", "scenario"],
-#         ),
-#         columns=years,
-#     )
-# )
-
-# for vdf in oh_concentrations.groupby("variable"):
-#     vdf.lineplot(style="variable")
-#     plt.show()
-    
-# concentrations=concentrations.append(oh_concentrations)
-# concentrations.timeseries()
 ```
 
 ```{code-cell} ipython3
@@ -955,10 +889,50 @@ atmosphere_mole_outer
 ```
 
 ```{code-cell} ipython3
-
+y0
 ```
 
 ```{code-cell} ipython3
+def do_experiments_output(**inputs):
+    out = do_experiments(**inputs)
+    
+    def floor_CO_values(i,year=1991):
+        out=i.copy().timeseries()
+        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),:dt.datetime(year,1,1)] = 0
+        return scmdata.ScmRun(out)
+    
+    def floor_OH_values(i,start=1979,stop=2014):
+        out=i.copy().timeseries()
+        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),:dt.datetime(start,1,1)] = 0
+        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),dt.datetime(stop,1,1):] = 0
+        return scmdata.ScmRun(out)
+
+    out= floor_CO_values(out)
+    out= floor_OH_values(out)
+    
+
+    
+    return out
+
+def do_no_hydrogen_output(**inputs):
+    out = do_experiments(**inputs)
+    
+    def floor_CO_values(i,year=1991):
+        out=i.copy().timeseries()
+        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),:dt.datetime(year,1,1)] = 0
+        return scmdata.ScmRun(out)
+    
+    def floor_OH_values(i,start=1979,stop=2014):
+        out=i.copy().timeseries()
+        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),:dt.datetime(start,1,1)] = 0
+        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),dt.datetime(stop,1,1):] = 0
+        return scmdata.ScmRun(out)
+
+    out= floor_CO_values(out)
+    out= floor_OH_values(out)
+
+    return out.filter(variable=["*|CH4","*|CO","*|OH"])
+
 def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,nat_ch4, input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
@@ -1190,17 +1164,50 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,na
 #         "oh": UNIT_REGISTRY.Quantity(2.48e-05, "ppb"),
 #     } 
     # scale hydroxyl
-    input_emms = scale_hydroxyl(input_emms,hydroxyl_scale.magnitude)
+    input_emms = scale_hydroxyl(input_emms.copy(),hydroxyl_scale.magnitude)
     
     # Add natural methane
 
     # add exta natural ch4 emissions
     input_emms = add_nat_ch4(input_emms,nat_ch4)
+    
+    # Derive y0
+#     inverse_tau =y0["ch4"]*parameter_res["k1"]*per_cm3_to_ppb + y0["h2"]*parameter_res["k2"]*per_cm3_to_ppb + y0["co"]*parameter_res["k3"]*per_cm3_to_ppb+parameter_res["kx"]
+#     inverse_tau
+#     oh_emm= UNIT_REGISTRY.Quantity(emissions_ppb.filter(variable="*|OH").timeseries().iloc[0,0],'ppb/year')
+#     oh_emm
+#     y0_derived = oh_emm/inverse_tau
+#     y0_derived.to('ppb')*parameter_res["hydroxyl_scale"]
+    def derive_y0(k1,k2,k3,kx,input_emms):
+        #  
+        '''
+        tau = Burden / Losses
+        As Losses are dependent on the Burden, each tau_x is the 1/(k_x * [X])
+        
+        For equilibrium,
+        tau = Burden / Sources
+        Burden= tau * Sources
+        
+    
+        
+        https://pages.jh.edu/rstolar1/other_pubs/LifetimeReport_Ch2.pdf
+        
+        '''
+        air_number = UNIT_REGISTRY.Quantity(2.5e19, "1 / cm^3")
+        per_cm3_to_ppb = air_number / UNIT_REGISTRY.Quantity(1e9, "ppb")
+        inverse_tau = ( y0["ch4"]* k1 * per_cm3_to_ppb 
+                       + y0["h2"]* k2 * per_cm3_to_ppb 
+                       + y0["co"]* k3 * per_cm3_to_ppb
+                       + kx
+                      )
+        oh_emm = UNIT_REGISTRY.Quantity(input_emms.filter(variable="*|OH").timeseries().iloc[0,0],'ppb/year')
+        out = oh_emm/inverse_tau
+        return out.to('ppb')
 
     # modify first co and oh values
     y0["co"]=y0_co
+#     y0["oh"]=derive_y0(k1,k2,k3,kx,input_emms)
     y0["oh"]=y0_oh
-    
     
     to_solve = HydrogenBox(
     k1=k1,
@@ -1246,34 +1253,10 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,na
 
 #     out["model"] = "example"
 
-#     out = scmdata.run_append(scens_res).filter()
 
-    def floor_CO_values(i,year=1990):
-        out=i.copy().timeseries()
-        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),:dt.datetime(year,1,1)] = 0
-        return scmdata.ScmRun(out)
-    
-    def floor_OH_values(i,start=1980,stop=2014):
-        out=i.copy().timeseries()
-        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),:dt.datetime(start,1,1)] = 0
-        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),dt.datetime(stop,1,1):] = 0
-        return scmdata.ScmRun(out)
-
-    out = scmdata.run_append(scens_res).filter(variable=["*|CH4","*|CO","*|H2","*|OH"])
-#     out = scmdata.run_append(scens_res).filter(variable=["*|CH4","*|CO"])
-
-    out= floor_CO_values(out)
-    out= floor_OH_values(out)
+    out = scmdata.run_append(scens_res)
 
     return out
-```
-
-```{code-cell} ipython3
-# target.timeseries()
-```
-
-```{code-cell} ipython3
-# target
 ```
 
 ### Target
@@ -1281,31 +1264,15 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,na
 Use Jpl values to calculate a target.
 
 ```{code-cell} ipython3
-k1_jpl = UNIT_REGISTRY.Quantity(6.3e-15, "cm^3 / s")
-k2_jpl = UNIT_REGISTRY.Quantity(6.7e-15, "cm^3 / s")  # JPL publication 19-5, page 1-53
-k3_jpl = UNIT_REGISTRY.Quantity(2e-13, "cm^3 / s")
-kx_base = UNIT_REGISTRY.Quantity(1.062, "1 / s")
+y0
+```
+
+```{code-cell} ipython3
+# do_experiments(**truth).filter(variable = "*|OH").lineplot(style='variable')
 ```
 
 ```{code-cell} ipython3
 emissions_ppb
-```
-
-```{code-cell} ipython3
-concentrations.timeseries()
-```
-
-```{code-cell} ipython3
-# y0 = {
-#         "ch4": UNIT_REGISTRY.Quantity(974.787109, "ppb"),
-#         "co": UNIT_REGISTRY.Quantity(100, "ppb"),
-#         "h2": UNIT_REGISTRY.Quantity(342.044854, "ppb"),
-#         "oh": UNIT_REGISTRY.Quantity(2.9e-05, "ppb"),
-#     } 
-```
-
-```{code-cell} ipython3
-
 ```
 
 ```{code-cell} ipython3
@@ -1328,8 +1295,8 @@ truth = {
     "tau_dep_h2" : UNIT_REGISTRY.Quantity(2.63, "year"),
     "alpha" : UNIT_REGISTRY.Quantity(0.32,"1"),
     "hydroxyl_scale": UNIT_REGISTRY.Quantity(1,""),
-    "y0_co":UNIT_REGISTRY.Quantity(70,"ppb"),
-    "y0_oh":UNIT_REGISTRY.Quantity(2.5e-5,"ppb"),
+    "y0_co":UNIT_REGISTRY.Quantity(50,"ppb"),
+    "y0_oh":UNIT_REGISTRY.Quantity(5e-5,"ppb"),
     "nat_ch4":UNIT_REGISTRY.Quantity(305,"Mt CH4 / a"),
     "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
@@ -1339,7 +1306,7 @@ truth = {
 }
 
 # get correct format of target
-target = do_experiments(**truth,)
+target = do_experiments_output(**truth,)
 target["model"] = "target"
 
 
@@ -1377,35 +1344,26 @@ target.timeseries()
 
 The next thing is to decide how we're going to calculate the cost function. There are many options here, in this case we're going to use the sum of squared errors.
 
-```{code-cell} ipython3
-# concentrations.timeseries().mean(axis=1)
-```
-
-```{code-cell} ipython3
-# normalisation = pd.Series(
-# #     [0.1,0.1,0.1,0.1],
-#     [1,1,1],
-
-#     index=pd.MultiIndex.from_arrays(
-#         (
-#             [
-#                 "Atmospheric Concentrations|CH4",
-#                 "Atmospheric Concentrations|H2",
-#                 "Atmospheric Concentrations|CO",
-#             ]
-#               ,
-#             ["ppb","ppb","ppb"],
-#         ),
-#         names=["variable", "unit"],
-#     ),
-# )
-# normalisation
-```
++++
 
 ## normalisation with spinup time
 
 ```{code-cell} ipython3
-concentrations
+
+```
+
+```{code-cell} ipython3
+gas_years={
+    "Atmospheric Concentrations|CH4":years,
+    "Atmospheric Concentrations|CO":years_co,
+    "Atmospheric Concentrations|H2":years,
+    "Atmospheric Concentrations|OH":years_oh    
+}
+normalisation_values = []
+for gas in gas_years.keys():
+    normalisation_values.append(concentrations.filter(variable=gas,year=gas_years[gas]).copy().timeseries().mean(axis=1).values[0])
+normalisation_values=np.array(normalisation_values)
+normalisation_values
 ```
 
 ```{code-cell} ipython3
@@ -1413,9 +1371,22 @@ concentrations
 ```
 
 ```{code-cell} ipython3
-normalisation_values= concentrations.filter(year=years_co).copy().timeseries().mean(axis=1).values
+target
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+# normalisation_values= concentrations.filter(year=years_co).copy().timeseries().mean(axis=1).values
 # normalisation_values[2]*=len(years_co)/len(years)/100
 # normalisation_values[1]*=2
+
+# Reduce Methane weighting
+normalisation_values[0]*=1/2
+# Reduce OH weighting
+normalisation_values[-1]*=4
 
 # normalisation_values[0]=1e40
 
@@ -1428,10 +1399,9 @@ normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np
 ### ensure non co values are out.
 # normalisation_series[1][:years_co[0]-years[0]+1]=1e100
 
-# Reduce OH weighting
-normalisation_series[-1]*=2
 
-# spinup = 3 #
+
+# spinup = 20 #
 # normalisation_series[:,0:spinup]=1e40
 
 normalisation_series
@@ -1464,30 +1434,6 @@ normalisation_scen.timeseries()
 ```
 
 ```{code-cell} ipython3
-# turn Hydroxyl off
-
-# target= target.filter(variable=["*|CH4","*|CO","*|H2"])
-# normalisation_scen=normalisation_scen.filter(variable=["*|CH4","*|CO","*|H2"])
-                    
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
 cost_calculator = OptCostCalculatorSSE(
     target=target,  model_col="model",normalisation=normalisation_scen,
 )
@@ -1495,74 +1441,6 @@ cost_calculator = OptCostCalculatorSSE(
 
 ```{code-cell} ipython3
 cost_calculator.normalisation.timeseries()
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-# normalisation = pd.Series(
-# #     [0.1,0.1,0.1,0.1],
-#     [1,1,1,1e-9],
-
-#     index=pd.MultiIndex.from_arrays(
-#         (
-#             [
-#                 "Atmospheric Concentrations|CH4",
-#                 "Atmospheric Concentrations|CO",
-#                 "Atmospheric Concentrations|H2",
-#                 "Atmospheric Concentrations|OH",
-#             ],
-#             ["ppb","ppb","ppb","ppb"],
-#         ),
-#         names=["variable", "unit"],
-#     ),
-# )
-# normalisation
-```
-
-```{code-cell} ipython3
-# normalisation_values= concentrations.timeseries().mean(axis=1).values
-# normalisation_names=[gas for gas in concentrations["variable"]]
-
-# #Reduce OH normalisation
-# normalisation_values[3]=1e30
-# # normalisation_values[2]=1e-5
-
-
-# normalisation = pd.Series(
-#     normalisation_values,
-
-#     index=pd.MultiIndex.from_arrays(
-#         (
-#             normalisation_names,
-#             ["ppb","ppb","ppb","ppb"],
-#         ),
-#         names=["variable", "unit"],
-#     ),
-# )
-# normalisation
-
-
-# # normalisation = pd.Series(
-# # #     [0.1,0.1,0.1,0.1],
-# #     [1,1,1,1e-9],
-
-# #     index=pd.MultiIndex.from_arrays(
-# #         (
-# #             [
-# #                 "Atmospheric Concentrations|CH4",
-# #                 "Atmospheric Concentrations|CO",
-# #                 "Atmospheric Concentrations|H2",
-# #                 "Atmospheric Concentrations|OH",
-# #             ],
-# #             ["ppb","ppb","ppb","ppb"],
-# #         ),
-# #         names=["variable", "unit"],
-# #     ),
-# # )
-# # normalisation
 ```
 
 #
@@ -1578,19 +1456,8 @@ cost_calculator
 ```
 
 ```{code-cell} ipython3
-cost_calculator
-```
-
-```{code-cell} ipython3
-cost_calculator
-```
-
-```{code-cell} ipython3
+# cost_calculator.normalisation.timeseries()
 cost_calculator.calculate_cost(target*1.2) 
-```
-
-```{code-cell} ipython3
-cost_calculator.normalisation.timeseries()
 ```
 
 ### Model runner
@@ -1618,6 +1485,38 @@ parameters
 ```
 
 Next we define a function which, given pint quantities, returns the inputs needed for our `do_experiments` function. In this case this is not a very interesting function, but in other use cases the flexibility is helpful.
+
+```{code-cell} ipython3
+def do_projections_input_generator(
+    k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
+    tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, 
+    y0_co: pint.Quantity, y0_oh: pint.Quantity, nat_ch4: pint.Quantity,
+) -> Dict[str, pint.Quantity]:
+    """
+    Create the inputs for :func:`do_experiments`
+
+    Parameters
+    ----------
+    k1
+        k1
+
+    k2
+        k2
+
+    k3
+        k3
+        
+  
+
+    Returns
+    -------
+        Inputs for :func: do_experiments
+    """
+    return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
+            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_co":y0_co, "y0_oh":y0_oh,
+            "input_emms" : full_emissions, "concentrations" : concentrations,
+            "years" : years, "y0": y0, "nat_ch4":nat_ch4,}
+```
 
 ```{code-cell} ipython3
 def do_model_runs_input_generator(
@@ -1652,10 +1551,14 @@ def do_model_runs_input_generator(
 ```
 
 ```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
 model_runner = OptModelRunner.from_parameters(
     params=parameters,
     do_model_runs_input_generator=do_model_runs_input_generator,
-    do_model_runs=do_experiments,
+    do_model_runs=do_experiments_output,
 )
 ```
 
@@ -1668,7 +1571,7 @@ cost_calculator.calculate_cost(model_runner.run_model([5e-15, 5e-15, 2.3e-13, 0.
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([5e-15, 5e-15, 2e-13, 0.7, 2.3,0.2,1,50,2.2e-5,305])
+start = np.array([5e-15, 5e-15, 2e-13, 0.7, 2.3,0.2,1,50,5.5e-5,305])
 start
 ```
 
@@ -1683,21 +1586,6 @@ truth = {
 ```
 
 ```{code-cell} ipython3
-# bounds_dict = {
-#     "k1": [
-#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
-#         UNIT_REGISTRY.Quantity(1e-10, "cm^3 / s"),
-#     ],
-#     "k2": [
-#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
-#         UNIT_REGISTRY.Quantity(1e-14, "cm^3 / s"),
-#     ],
-#     "k3": [
-#         UNIT_REGISTRY.Quantity(1e-17, "cm^3 / s"),
-#         UNIT_REGISTRY.Quantity(1e-10, "cm^3 / s"),
-#     ],
-
-# }
 bounds_dict = {
     "k1": [
         UNIT_REGISTRY.Quantity(2e-15, "cm^3 / s"),
@@ -1728,16 +1616,16 @@ bounds_dict = {
         UNIT_REGISTRY.Quantity(1.1,"")
     ],
      "y0_co":[
-        UNIT_REGISTRY.Quantity(40,"ppb"),
-        UNIT_REGISTRY.Quantity(70,"ppb")
+        UNIT_REGISTRY.Quantity(45,"ppb"),
+        UNIT_REGISTRY.Quantity(55,"ppb")
     ],
     "y0_oh":[
-        UNIT_REGISTRY.Quantity(1.9e-5,"ppb"),
-        UNIT_REGISTRY.Quantity(2.5e-5,"ppb")
+        UNIT_REGISTRY.Quantity(5e-5,"ppb"),
+        UNIT_REGISTRY.Quantity(6.2e-5,"ppb")
     ],
     "nat_ch4":[
         UNIT_REGISTRY.Quantity(200,"Mt CH4 / year"),
-        UNIT_REGISTRY.Quantity(500,"Mt CH4 / year")
+        UNIT_REGISTRY.Quantity(400,"Mt CH4 / year")
     ],
 }
 display(bounds_dict)
@@ -1763,7 +1651,7 @@ seed = 12849
 ## TODO: other repo with full runs
 # Tolerance to set for convergance
 atol = 0
-tol = 0.0002
+tol = 0.002
 # Maximum number of iterations to use
 maxiter = 16
 # Lower mutation means faster convergence but smaller
@@ -1806,8 +1694,12 @@ timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
 
 fig, axd = plt.subplot_mosaic(
     mosaic=[
-        timeseries_axes_mosaic,
-#         [timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
+        [timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[1]]+[timeseries_axes_mosaic[1]],
+        [timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[1]]+[timeseries_axes_mosaic[1]],
+        [timeseries_axes_mosaic[2]]+[timeseries_axes_mosaic[2]]+[timeseries_axes_mosaic[3]]+[timeseries_axes_mosaic[3]],
+        [timeseries_axes_mosaic[2]]+[timeseries_axes_mosaic[2]]+[timeseries_axes_mosaic[3]]+[timeseries_axes_mosaic[3]],
+
+        
         [cost_name]+parameters_mosaic[0:3],
         [cost_name]+parameters_mosaic[3:-4],
         [cost_name]+parameters_mosaic[-4:-1],
@@ -2213,47 +2105,11 @@ for _ in range(4):
 ## Hydrogen run
 
 ```{code-cell} ipython3
-normalisation_values= concentrations.filter(year=years_co).timeseries().mean(axis=1).values
-
-# normalisation_values[2]=1e1000
-
-normalisation_names=[gas for gas in concentrations["variable"]]
-normalisation_series=normalisation_values[:,np.newaxis]* np.ones(years.shape)[np.newaxis, :]
-
-
-### ensure non co values are out.
-normalisation_series[1][:years_co[0]-years[0]+1]=1e100
-
-# spinup = 3 #
-# normalisation_series[:,0:spinup]=1e40
-
-normalisation_series
-normalisation_years=target["time"].values
-normalisation_scen = scmdata.ScmRun(
-         pd.DataFrame(
-                normalisation_series,
-                index=pd.MultiIndex.from_arrays(
-                    [
-                        ["Atmospheric Concentrations|CH4",
-                        "Atmospheric Concentrations|CO",
-                        "Atmospheric Concentrations|H2",
-                        "Atmospheric Concentrations|OH",
-                        ],
-                        ["ppb","ppb","ppb","ppb"],
-                        ["World","World","World","World",],
-                        ["target","target","target","target",],
-                        ["historical","historical","historical","historical",],
-                    ],
-                    names=["variable", "unit", "region", "model", "scenario"],
-                    ),
-                    columns=normalisation_years
-         )
-)
 
 # Remove Hydrogen 
 # bad fix for now need seperate model with filter h2
-target= target.filter(variable=["*|CH4","*|CO",])
-normalisation_scen=normalisation_scen.filter(variable=["*|CH4","*|CO",])
+target= target.filter(variable=["*|CH4","*|CO","*|OH"])
+normalisation_scen=normalisation_scen.filter(variable=["*|CH4","*|CO","*|OH"])
    
     
 cost_calculator = OptCostCalculatorSSE(
@@ -2265,15 +2121,67 @@ assert cost_calculator.calculate_cost(target * 1.1) > 0
 ```
 
 ```{code-cell} ipython3
-model_runner = OptModelRunner.from_parameters(
+def get_parameter_res(parameters,res):
+    out=dict()
+    for parameter, value in zip(parameters,res):
+        out[parameter[0]]= UNIT_REGISTRY.Quantity(value,parameter[1])
+        
+    return out
+parameter_res = get_parameter_res(parameters,optimize_res.x)
+parameter_res
+
+start = optimize_res.x
+start
+```
+
+```{code-cell} ipython3
+start=optimize_res.x
+updated_bounds ={
+    "k2": [
+        UNIT_REGISTRY.Quantity(0, "cm^3 / s"),
+        
+        
+        
+        UNIT_REGISTRY.Quantity(0, "cm^3 / s"),
+    ],
+ 
+    "alpha": [
+        UNIT_REGISTRY.Quantity(0, ""),
+        UNIT_REGISTRY.Quantity(0, ""),
+    ],
+
+}
+bounds_dict.update(updated_bounds)
+
+bounds = [[v.to(unit).m for v in bounds_dict[k]] for k, unit in parameters]
+bounds
+```
+
+```{code-cell} ipython3
+start = np.array([5e-15, 5e-15, 2e-13, 0.7, 2.3,0.2,1,50,5.54496373e-05
+,305])
+```
+
+```{code-cell} ipython3
+no_hydrogen_runner = OptModelRunner.from_parameters(
     params=parameters,
     do_model_runs_input_generator=do_model_runs_input_generator,
-    do_model_runs=do_experiments,
+    do_model_runs=do_no_hydrogen_output,
+)
+```
+
+```{code-cell} ipython3
+no_hydrogen_runner = OptModelRunner.from_parameters(
+    params=parameters,
+    do_model_runs_input_generator=do_model_runs_input_generator,
+    do_model_runs=do_no_hydrogen_output,
 )
 
 
 
-start = np.array([5e-15, 0, 2e-13, 0.7, 2.3,0,1,50,2.2e-5,305])
+# start = np.array([5e-15, 0, 2e-13, 0.7, 2.3,0,1,50,5e-5,305])
+start = np.array([5e-15, 0, 2e-13, 0.7, 2.3,0,1.09975678e+00,50,5.54496373e-05,3.91752260e+02])
+
 start
 
 # bounds_dict = {
@@ -2291,52 +2199,79 @@ start
 #     ],
 
 # }
-bounds_dict = {
-    "k1": [
-        UNIT_REGISTRY.Quantity(2e-15, "cm^3 / s"),
-        UNIT_REGISTRY.Quantity(9e-15, "cm^3 / s"),
-    ],
+updated_bounds ={
     "k2": [
         UNIT_REGISTRY.Quantity(0, "cm^3 / s"),
         UNIT_REGISTRY.Quantity(0, "cm^3 / s"),
     ],
-    "k3": [
-        UNIT_REGISTRY.Quantity(2.0e-13, "cm^3 / s"),
-        UNIT_REGISTRY.Quantity(2.5e-13, "cm^3 / s"),
-    ],
-    "kx": [
-        UNIT_REGISTRY.Quantity(0.3, "1/ s"),
-        UNIT_REGISTRY.Quantity(0.8, "1 / s"),
-    ],
-     "tau_dep_h2": [
-        UNIT_REGISTRY.Quantity(2.3, " year"),
-        UNIT_REGISTRY.Quantity(2.3, " year"),
-    ],
+ 
     "alpha": [
         UNIT_REGISTRY.Quantity(0, ""),
         UNIT_REGISTRY.Quantity(0, ""),
     ],
-    "hydroxyl_scale": [
-        UNIT_REGISTRY.Quantity(0.9,""),
-        UNIT_REGISTRY.Quantity(1.1,"")
-    ],
-     "y0_co":[
-        UNIT_REGISTRY.Quantity(40,"ppb"),
-        UNIT_REGISTRY.Quantity(70,"ppb")
-    ],
-    "y0_oh":[
-        UNIT_REGISTRY.Quantity(1.9e-5,"ppb"),
-        UNIT_REGISTRY.Quantity(2.5e-5,"ppb")
-    ],
-    "nat_ch4":[
-        UNIT_REGISTRY.Quantity(200,"Mt CH4 / year"),
-        UNIT_REGISTRY.Quantity(500,"Mt CH4 / year")
-    ],
+    
+   
 }
+bounds_dict.update(updated_bounds)
+
+# bounds_dict = {
+#     "k1": [
+#         UNIT_REGISTRY.Quantity(2e-15, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(9e-15, "cm^3 / s"),
+#     ],
+#     "k2": [
+#         UNIT_REGISTRY.Quantity(0, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(0, "cm^3 / s"),
+#     ],
+#     "k3": [
+#         UNIT_REGISTRY.Quantity(2.0e-13, "cm^3 / s"),
+#         UNIT_REGISTRY.Quantity(2.5e-13, "cm^3 / s"),
+#     ],
+#     "kx": [
+#         UNIT_REGISTRY.Quantity(0.3, "1/ s"),
+#         UNIT_REGISTRY.Quantity(0.8, "1 / s"),
+#     ],
+#      "tau_dep_h2": [
+#         UNIT_REGISTRY.Quantity(2.3, " year"),
+#         UNIT_REGISTRY.Quantity(2.3, " year"),
+#     ],
+#     "alpha": [
+#         UNIT_REGISTRY.Quantity(0, ""),
+#         UNIT_REGISTRY.Quantity(0, ""),
+#     ],
+#     "hydroxyl_scale": [
+#         UNIT_REGISTRY.Quantity(0.9,""),
+#         UNIT_REGISTRY.Quantity(1.1,"")
+#     ],
+#      "y0_co":[
+#         UNIT_REGISTRY.Quantity(40,"ppb"),
+#         UNIT_REGISTRY.Quantity(70,"ppb")
+#     ],
+#     "y0_oh":[
+#         UNIT_REGISTRY.Quantity(4e-5,"ppb"),
+#         UNIT_REGISTRY.Quantity(6e-5,"ppb")
+#     ],
+
+# #     "nat_ch4":[
+# #         UNIT_REGISTRY.Quantity(200,"Mt CH4 / year"),
+# #         UNIT_REGISTRY.Quantity(500,"Mt CH4 / year")
+# #     ],
+
+#     # bad fix here
+    
+#     "nat_ch4":[
+#         UNIT_REGISTRY.Quantity(3.65408507e+02,"Mt CH4 / year"),
+#         UNIT_REGISTRY.Quantity(3.65408507e+02,"Mt CH4 / year")
+#     ],
+# }
 display(bounds_dict)
 
 bounds = [[v.to(unit).m for v in bounds_dict[k]] for k, unit in parameters]
 bounds
+```
+
+```{code-cell} ipython3
+no_hydrogen_runner.run_model(start)
 ```
 
 ```{code-cell} ipython3
@@ -2393,9 +2328,11 @@ timeseries_axes_mosaic = list(more_itertools.repeat_each(timeseries_axes, 1))
 
 fig, axd = plt.subplot_mosaic(
     mosaic=[
-        [cost_name]+[timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
-#         [timeseries_axes_mosaic[0]]+timeseries_axes_mosaic,
-        [cost_name]+parameters_mosaic[0:3],
+        [timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[0]],
+        [timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[0]]+[timeseries_axes_mosaic[0]],
+        [timeseries_axes_mosaic[1]]+[timeseries_axes_mosaic[1]]+[timeseries_axes_mosaic[2]]+[timeseries_axes_mosaic[2]],
+        [timeseries_axes_mosaic[1]]+[timeseries_axes_mosaic[1]]+[timeseries_axes_mosaic[2]]+[timeseries_axes_mosaic[2]],
+        [cost_name]+parameters_mosaic[:3],
         [cost_name]+parameters_mosaic[3:-4],
         [cost_name]+parameters_mosaic[-4:-1],
         [cost_name]+[parameters_mosaic[-1]]*3,
@@ -2419,7 +2356,7 @@ with Manager() as manager:
         to_minimize_full,
         store=store,
         cost_calculator=cost_calculator,
-        model_runner=model_runner,
+        model_runner=no_hydrogen_runner,
         known_error=ValueError,
     )
 
@@ -2447,7 +2384,7 @@ with Manager() as manager:
             )
 
             # This could be wrapped up too
-            optimize_res = scipy.optimize.differential_evolution(
+            optimize_res_no_hydrogen = scipy.optimize.differential_evolution(
                 to_minimize,
                 bounds,
                 maxiter=maxiter,
@@ -2466,7 +2403,81 @@ with Manager() as manager:
             )
 
 plt.close()
+optimize_res_no_hydrogen
+```
+
+## Create future projections
+
+```{code-cell} ipython3
+projection_runner = OptModelRunner.from_parameters(
+    params=parameters,
+    do_model_runs_input_generator=do_projections_input_generator,
+    do_model_runs=do_experiments,
+)
+```
+
+```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
+hydrogen_runs = projection_runner.run_model(optimize_res.x).lineplot(style='variable')
+```
+
+```{code-cell} ipython3
+type(hydrogen_runs)
+```
+
+```{code-cell} ipython3
 optimize_res
+```
+
+```{code-cell} ipython3
+def get_parameter_res(parameters,res):
+    out=dict()
+    for parameter, value in zip(parameters,res):
+        out[parameter[0]]= UNIT_REGISTRY.Quantity(value,parameter[1])
+        
+    return out
+parameter_res = get_parameter_res(parameters,optimize_res.x)
+parameter_res
+```
+
+```{code-cell} ipython3
+# def get_parameter_res(parameters,res):
+#     out=dict()
+#     for parameter, value in zip(parameters,res):
+#         out[parameter[0]]= UNIT_REGISTRY.Quantity(value,parameter[1])
+        
+#     return out
+# parameter_res = get_parameter_res(parameters,optimize_res.x)
+
+# hydrogen_runs = do_experiments(**do_projections_input_generator(**parameter_res))
+# hydrogen_runs.timeseries()
+hydrogen_runs = projection_runner.run_model(optimize_res.x)
+hydrogen_runs["model"]= "Hydrogen"
+hydrogen_runs.timeseries()
+```
+
+```{code-cell} ipython3
+hydrogenless_runs = projection_runner.run_model(optimize_res_no_hydrogen.x)
+hydrogenless_runs["model"]= "No Hydrogen"
+hydrogenless_runs.timeseries()
+```
+
+```{code-cell} ipython3
+projections_scen= hydrogen_runs.append(hydrogenless_runs)
+```
+
+```{code-cell} ipython3
+for vdf in projections_scen.groupby('variable'):
+    vdf.lineplot(hue='model')
+    plt.title(vdf.get_unique_meta('variable')[0])
+    plt.show()
+```
+
+```{code-cell} ipython3
+vdf.get_unique_meta('variable')
 ```
 
 ```{code-cell} ipython3
