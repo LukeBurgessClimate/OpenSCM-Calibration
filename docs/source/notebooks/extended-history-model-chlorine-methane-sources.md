@@ -282,6 +282,7 @@ atmosphere_mole_outer
 #     atmosphere_mole=atmosphere_mole_outer,
 # ):
 #     emms_mole = emms / molar_mass
+
 #     emms_mole.to("mole / yr")
 
 #     emms_ppb = (emms_mole / atmosphere_mole) * UNIT_REGISTRY.Quantity(1e9, "ppb")
@@ -411,7 +412,8 @@ def add_natural_emissions(scen, gases, natural):
 ```{code-cell} ipython3
 gases = ["Emissions|CH4","Emissions|CO","Emissions|H2"]
 ### natural emissions
-natural = [220, 381,32.4]
+
+natural = [0, 381,32.4]
 combined_emissions = add_natural_emissions(emissions,gases,natural)
 ```
 
@@ -565,6 +567,10 @@ emissions_ppb.timeseries()
 for vdf in concentrations.groupby("variable"):
     vdf.lineplot(style="variable")
     plt.show()
+```
+
+```{code-cell} ipython3
+
 ```
 
 ```{code-cell} ipython3
@@ -742,7 +748,7 @@ def get_emms_func(scmrun):
 ```
 
 ```{code-cell} ipython3
-def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_emms, concentrations,years, y0
+def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh,nat_ch4, input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
     Run model experiments
@@ -948,6 +954,14 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_e
         out.loc[out.index.get_level_values("variable").isin(["Emissions|OH"])]*= scale
         return scmdata.ScmRun(out)
             
+    def add_nat_ch4(i,nat_ch4):
+        molar_mass = UNIT_REGISTRY.Quantity(16, "g CH4/ mol")
+        out=i.timeseries().copy()
+        nat_ch4_mol = nat_ch4 / molar_mass
+        nat_ch4_ppb = nat_ch4_mol/atmosphere_mole_outer*UNIT_REGISTRY.Quantity(1e9,'ppb')
+        out.loc[out.index.get_level_values("variable").isin(["Emissions|CH4"])]+= nat_ch4_ppb
+        return scmdata.ScmRun(out)
+    
     years = years
 
 
@@ -966,6 +980,9 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_oh, input_e
     # scale hydroxyl
     input_emms = scale_hydroxyl(input_emms,hydroxyl_scale.magnitude)
     
+    # add exta natural ch4 emissions
+    input_emms = add_nat_ch4(input_emms,nat_ch4)
+
     # modify first oh value
     y0["oh"]=y0_oh
     
@@ -1057,6 +1074,10 @@ concentrations.timeseries()
 ```
 
 ```{code-cell} ipython3
+
+```
+
+```{code-cell} ipython3
 def get_y0(conc):
     '''
     returns correct format for y0
@@ -1079,7 +1100,7 @@ truth = {
     "alpha" : UNIT_REGISTRY.Quantity(0.32,"1"),
     "hydroxyl_scale": UNIT_REGISTRY.Quantity(1,""),
     "y0_oh":UNIT_REGISTRY.Quantity(2.5e-5,"ppb"),
-    "input_emms" : emissions_ppb,
+ g    "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
     "years" : years,
     "y0" : y0,
@@ -1308,6 +1329,7 @@ parameters = [
     ("alpha", f""),
     ("hydroxyl_scale",f''),
     ('y0_oh',f'{CONC_UNIT}'),
+    ('nat_ch4',f'{CONC_UNIT}/{TIME_UNIT}'),
 ]
 parameters
 ```
@@ -1318,6 +1340,7 @@ Next we define a function which, given pint quantities, returns the inputs neede
 def do_model_runs_input_generator(
     k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
     tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, y0_oh: pint.Quantity,
+    nat_ch4: pint.Quantity,
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
@@ -1342,7 +1365,7 @@ def do_model_runs_input_generator(
     return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
             "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_oh":y0_oh,
             "input_emms" : emissions_ppb, "concentrations" : concentrations,
-            "years" : years, "y0": y0, }
+            "years" : years, "y0": y0, "nat_ch4":nat_ch4,}
 ```
 
 ```{code-cell} ipython3
@@ -1362,7 +1385,7 @@ Now we can run from a plain numpy array (like scipy will use) and get a result t
 We have to define where to start the optimisation.
 
 ```{code-cell} ipython3
-start = np.array([5e-15, 5e-15, 2.3e-13, 0.7, 73115200,0.2,1,2.5e-5])
+start = np.array([5e-15, 5e-15, 2.3e-13, 0.7, 73115200,0.2,1,2.5e-5, 305])
 start
 ```
 
@@ -1424,8 +1447,11 @@ bounds_dict = {
     "y0_oh":[
         UNIT_REGISTRY.Quantity(1.5e-5,"ppb"),
         UNIT_REGISTRY.Quantity(4.5e-5,"ppb")
-    ]
-    
+    ],
+    "nat_ch4":[
+        UNIT_REGISTRY.Quantity(190,"Mt CH4 / a"),
+        UNIT_REGISTRY.Quantity(408,"Mt CH4 / a")
+    ],
 }
 display(bounds_dict)
 
