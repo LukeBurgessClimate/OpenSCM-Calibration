@@ -1066,7 +1066,7 @@ concentrations.timeseries()
 ```
 
 ```{code-cell} ipython3
-y0
+
 ```
 
 ```{code-cell} ipython3
