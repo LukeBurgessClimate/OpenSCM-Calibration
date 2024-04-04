@@ -1103,30 +1103,13 @@ The next thing is to decide how we're going to calculate the cost function. Ther
 ```
 
 ```{code-cell} ipython3
-# normalisation = pd.Series(
-# #     [0.1,0.1,0.1,0.1],
-#     [1,1,1],
 
-#     index=pd.MultiIndex.from_arrays(
-#         (
-#             [
-#                 "Atmospheric Concentrations|CH4",
-#                 "Atmospheric Concentrations|H2",
-#                 "Atmospheric Concentrations|CO",
-#             ]
-#               ,
-#             ["ppb","ppb","ppb"],
-#         ),
-#         names=["variable", "unit"],
-#     ),
-# )
-# normalisation
 ```
 
 ## normalisation with spinup time
 
 ```{code-cell} ipython3
-normalisation_series
+# normalisation_series
 ```
 
 ```{code-cell} ipython3
