@@ -229,11 +229,15 @@ agage_sh = load_gas_csv(agage_path_sh,gases,header=16)
 agage_global = [(x+y)/2 for x,y in zip(agage_nh,agage_sh)]
 ```
 
-### Create historical
+### Create historical Hydrogen
 
 Concentrations increased by 1.5 ppb/yr betwen 1910 and 1952, then increased by 2.7 ppb/yr
 ```
 https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2020GL087787
+```
+
+```{code-cell} ipython3
+
 ```
 
 ```{code-cell} ipython3
@@ -253,10 +257,15 @@ def create_trend(rate, end_value, start,end):
 
 end_year= 1994
 middle_year = 1952
-start_year=years[0]
+start_year=1910
+
 trend2, years2= create_trend(2.7,agage_global[0].loc[1994],middle_year,end_year)
 trend1,years1 = create_trend(1.5,trend2[0],start_year,middle_year)
-h2_values = np.concatenate((trend1,trend2,agage_global[0].loc[end_year:]))
+h2_values = np.concatenate((np.zeros(projection_years[0]-years[0]),trend1,trend2,agage_global[0].loc[end_year:]))
+```
+
+```{code-cell} ipython3
+plt.plot(years,h2_values)
 ```
 
 ## CO
@@ -306,10 +315,6 @@ co_conc=np.zeros(years.shape)
 ```
 
 ### Combine concentrations
-
-```{code-cell} ipython3
-co_conc.shape
-```
 
 ```{code-cell} ipython3
 combined_concentrations=[ch4_conc["data_mean_global"].values,co_conc,h2_values]
@@ -889,27 +894,41 @@ atmosphere_mole_outer
 ```
 
 ```{code-cell} ipython3
-y0
-```
-
-```{code-cell} ipython3
 def do_experiments_output(**inputs):
     out = do_experiments(**inputs)
     
-    def floor_CO_values(i,year=1991):
+    def floor_gas_values(i,gas_name,start=False,stop=False):
         out=i.copy().timeseries()
-        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),:dt.datetime(year,1,1)] = 0
-        return scmdata.ScmRun(out)
-    
-    def floor_OH_values(i,start=1979,stop=2014):
-        out=i.copy().timeseries()
-        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),:dt.datetime(start,1,1)] = 0
-        out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),dt.datetime(stop,1,1):] = 0
+        
+        if not start and not stop:
+            raise Exception("No time given")
+        elif not start:
+            out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|"+gas_name]),:stop] = 0
+        elif not stop:
+            out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|"+gas_name]),start:] = 0
+        
+        else:
+            out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|"+gas_name]),start:stop] = 0
         return scmdata.ScmRun(out)
 
-    out= floor_CO_values(out)
-    out= floor_OH_values(out)
+            
+
+#     def floor_CO_values(i,year=1991):
+#         out=i.copy().timeseries()
+#         out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|CO"]),:dt.datetime(year,1,1)] = 0
+#         return scmdata.ScmRun(out)
     
+#     def floor_OH_values(i,start=1979,stop=2014):
+#         out=i.copy().timeseries()
+#         out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),:dt.datetime(start,1,1)] = 0
+#         out.loc[out.index.get_level_values("variable").isin(["Atmospheric Concentrations|OH"]),dt.datetime(stop,1,1):] = 0
+#         return scmdata.ScmRun(out)
+    # Floor values
+    out = floor_gas_values(out,"CO",start=1991)
+    out = floor_gas_values(out,"H2",start=1910)
+    out = floor_gas_values(out,"OH",stop=1979)
+    out = floor_gas_values(out,"OH",start=2014)
+
 
     
     return out
@@ -933,7 +952,7 @@ def do_no_hydrogen_output(**inputs):
 
     return out.filter(variable=["*|CH4","*|CO","*|OH"])
 
-def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,nat_ch4, input_emms, concentrations,years, y0
+def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_h2,nat_ch4, input_emms, concentrations,years, y0
 ) -> scmdata.run.BaseScmRun:
     """
     Run model experiments
@@ -1178,7 +1197,7 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,na
 #     oh_emm
 #     y0_derived = oh_emm/inverse_tau
 #     y0_derived.to('ppb')*parameter_res["hydroxyl_scale"]
-    def derive_y0(k1,k2,k3,kx,input_emms):
+    def derive_y0(k1,k2,k3,kx,y0,input_emms,):
         #  
         '''
         tau = Burden / Losses
@@ -1204,10 +1223,10 @@ def do_experiments(k1,k2, k3,kx, tau_dep_h2,alpha, hydroxyl_scale,y0_co,y0_oh,na
         out = oh_emm/inverse_tau
         return out.to('ppb')
 
-    # modify first co and oh values
+    # modify first co and h2 values
     y0["co"]=y0_co
-#     y0["oh"]=derive_y0(k1,k2,k3,kx,input_emms)
-    y0["oh"]=y0_oh
+    y0["h2"]=y0_h2
+    y0["oh"]=derive_y0(k1,k2,k3,kx,y0,input_emms)
     
     to_solve = HydrogenBox(
     k1=k1,
@@ -1272,6 +1291,10 @@ y0
 ```
 
 ```{code-cell} ipython3
+concentrations
+```
+
+```{code-cell} ipython3
 emissions_ppb
 ```
 
@@ -1296,7 +1319,7 @@ truth = {
     "alpha" : UNIT_REGISTRY.Quantity(0.32,"1"),
     "hydroxyl_scale": UNIT_REGISTRY.Quantity(1,""),
     "y0_co":UNIT_REGISTRY.Quantity(50,"ppb"),
-    "y0_oh":UNIT_REGISTRY.Quantity(5e-5,"ppb"),
+    "y0_h2":UNIT_REGISTRY.Quantity(325,"ppb"),
     "nat_ch4":UNIT_REGISTRY.Quantity(305,"Mt CH4 / a"),
     "input_emms" : emissions_ppb,
     "concentrations" : concentrations,
@@ -1478,7 +1501,7 @@ parameters = [
     ("alpha", f""),
     ("hydroxyl_scale",f''),
     ('y0_co',f'{CONC_UNIT}'),
-    ('y0_oh',f'{CONC_UNIT}'),
+    ('y0_h2',f'{CONC_UNIT}'),
     ('nat_ch4',f'Mt CH4 / year'),
 ]
 parameters
@@ -1490,7 +1513,7 @@ Next we define a function which, given pint quantities, returns the inputs neede
 def do_projections_input_generator(
     k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
     tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, 
-    y0_co: pint.Quantity, y0_oh: pint.Quantity, nat_ch4: pint.Quantity,
+    y0_co: pint.Quantity, y0_h2: pint.Quantity, nat_ch4: pint.Quantity,
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
@@ -1513,7 +1536,7 @@ def do_projections_input_generator(
         Inputs for :func: do_experiments
     """
     return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
-            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_co":y0_co, "y0_oh":y0_oh,
+            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_co":y0_co, "y0_h2":y0_h2,
             "input_emms" : full_emissions, "concentrations" : concentrations,
             "years" : years, "y0": y0, "nat_ch4":nat_ch4,}
 ```
@@ -1522,7 +1545,7 @@ def do_projections_input_generator(
 def do_model_runs_input_generator(
     k1: pint.Quantity, k2: pint.Quantity, k3: pint.Quantity, kx: pint.Quantity,
     tau_dep_h2: pint.Quantity, alpha:pint.Quantity, hydroxyl_scale: pint.Quantity, 
-    y0_co: pint.Quantity, y0_oh: pint.Quantity, nat_ch4: pint.Quantity,
+    y0_co: pint.Quantity, y0_h2: pint.Quantity, nat_ch4: pint.Quantity,
 ) -> Dict[str, pint.Quantity]:
     """
     Create the inputs for :func:`do_experiments`
@@ -1545,7 +1568,7 @@ def do_model_runs_input_generator(
         Inputs for :func: do_experiments
     """
     return {"k1": k1, "k2": k2, "k3": k3, "kx":kx, "tau_dep_h2": tau_dep_h2, 
-            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_co":y0_co, "y0_oh":y0_oh,
+            "alpha": alpha, "hydroxyl_scale": hydroxyl_scale, "y0_co":y0_co, "y0_h2":y0_h2,
             "input_emms" : emissions_ppb, "concentrations" : concentrations,
             "years" : years, "y0": y0, "nat_ch4":nat_ch4,}
 ```
@@ -1619,9 +1642,9 @@ bounds_dict = {
         UNIT_REGISTRY.Quantity(45,"ppb"),
         UNIT_REGISTRY.Quantity(55,"ppb")
     ],
-    "y0_oh":[
-        UNIT_REGISTRY.Quantity(5e-5,"ppb"),
-        UNIT_REGISTRY.Quantity(6.2e-5,"ppb")
+    "y0_h2":[
+        UNIT_REGISTRY.Quantity(285,"ppb"),
+        UNIT_REGISTRY.Quantity(400,"ppb")
     ],
     "nat_ch4":[
         UNIT_REGISTRY.Quantity(200,"Mt CH4 / year"),
@@ -2247,7 +2270,7 @@ bounds_dict.update(updated_bounds)
 #         UNIT_REGISTRY.Quantity(40,"ppb"),
 #         UNIT_REGISTRY.Quantity(70,"ppb")
 #     ],
-#     "y0_oh":[
+#     "y0_h2":[
 #         UNIT_REGISTRY.Quantity(4e-5,"ppb"),
 #         UNIT_REGISTRY.Quantity(6e-5,"ppb")
 #     ],
