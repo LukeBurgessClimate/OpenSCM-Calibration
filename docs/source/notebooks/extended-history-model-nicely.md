@@ -141,6 +141,8 @@ We're going to calibrate the model's response to historical data experiments:
 
 ```{code-cell} ipython3
 years = np.arange(1940,2023)
+future_years = np.arange(1940,2100)
+
 def get_ch4_conc(path,years):
     out = pd.read_csv(path,header=0)
     out = out.loc[out["year"].isin(years),["year","data_mean_global"]]
@@ -338,13 +340,14 @@ emissions
 ```{code-cell} ipython3
 def import_hydrogen_emissions(path):
     emissions= pd.read_csv(path).drop(columns=["sector_short"])
-    emissions.loc[emissions["region"]=="World"].groupby(["model","region","scenario","type","unit","variable"]
+    emissions = emissions.loc[emissions["region"]=="World"].groupby(["model","region","scenario","type","unit","variable"]
                                                        ).sum(numeric_only=True)
     
-    out=scmdata.ScmRun(emissions)
+    out=scmdata.ScmRun(emissions).drop_meta('type')
     return out
 
 path_patt = 'datasets/baseline_h2_emissions_regions.csv'
+patterson=import_hydrogen_emissions(path_patt)
 
 patterson.timeseries()
 ```
@@ -387,6 +390,14 @@ current = future_hydrogen.copy().filter(year=range(2016,2101))
 current = current.filter(variable='Emissions|H2')
 current["model"]="Patterson"
 current["scenario"]="historical"
+```
+
+```{code-cell} ipython3
+current.timeseries()
+```
+
+```{code-cell} ipython3
+patterson.timeseries()
 ```
 
 ```{code-cell} ipython3
@@ -515,10 +526,11 @@ emissions_ppb=emissions_ppb.convert_unit("ppb/a")
 # emissions_ppb.timeseries()
 ```
 
-### Add OH emissions
+
 
 +++
 
+### Add OH emissions
 #### OH emissions have grown by about 1% per decade.
 https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2018JD028388
 
@@ -1355,14 +1367,6 @@ cost_calculator.normalisation.timeseries()
 
 assert cost_calculator.calculate_cost(target) == 0
 assert cost_calculator.calculate_cost(target * 1.1) > 0
-cost_calculator
-```
-
-```{code-cell} ipython3
-cost_calculator
-```
-
-```{code-cell} ipython3
 cost_calculator
 ```
 
